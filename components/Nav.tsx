@@ -3,6 +3,16 @@
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 
+// ─────────────────────────────────────────────
+//  Routes where the nav should NOT appear
+// ─────────────────────────────────────────────
+
+const HIDDEN_ON = ["/auth/signin", "/auth/signup", "/onboarding"]
+
+// ─────────────────────────────────────────────
+//  Nav items
+// ─────────────────────────────────────────────
+
 const NAV_ITEMS = [
   {
     href: "/",
@@ -40,6 +50,20 @@ const NAV_ITEMS = [
     ),
   },
   {
+    href: "/program",
+    label: "Program",
+    icon: (active: boolean) => (
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none"
+        stroke="currentColor" strokeWidth={active ? 2 : 1.5}
+        strokeLinecap="round" strokeLinejoin="round">
+        <rect x="3" y="3" width="7" height="7" rx="1" />
+        <rect x="14" y="3" width="7" height="7" rx="1" />
+        <rect x="3" y="14" width="7" height="7" rx="1" />
+        <rect x="14" y="14" width="7" height="7" rx="1" />
+      </svg>
+    ),
+  },
+  {
     href: "/chat",
     label: "AI Chat",
     icon: (active: boolean) => (
@@ -55,8 +79,17 @@ const NAV_ITEMS = [
   },
 ]
 
+// ─────────────────────────────────────────────
+//  Component
+// ─────────────────────────────────────────────
+
 export default function Nav() {
   const pathname = usePathname()
+
+  // Hide nav on auth + onboarding pages
+  if (HIDDEN_ON.some((route) => pathname.startsWith(route))) {
+    return null
+  }
 
   return (
     <nav
@@ -97,6 +130,7 @@ export default function Nav() {
               paddingBottom: 4,
             }}
           >
+            {/* Active indicator pill */}
             <span
               aria-hidden="true"
               style={{
