@@ -538,6 +538,31 @@ export function IcoEquipment({ size = 13, ...props }: IconProps) {
   )
 }
 
+export function IcoDumbbellLogo({ size = 24, ...props }: IconProps) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      {...props}
+    >
+      <path d="M6 5v14" />
+      <path d="M18 5v14" />
+      <path d="M6 9h12" />
+      <path d="M6 15h12" />
+      <path d="M4 7v10" strokeWidth="3" />
+      <path d="M20 7v10" strokeWidth="3" />
+      <path d="M2 9v6" strokeWidth="3" />
+      <path d="M22 9v6" strokeWidth="3" />
+    </svg>
+  )
+}
+
 export function IcoZap({ size = 14, ...props }: IconProps) {
   return (
     <svg

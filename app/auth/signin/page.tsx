@@ -4,7 +4,7 @@ import { useState } from "react"
 import { useRouter } from "next/navigation"
 import Link from "next/link"
 import { createClient } from "@/lib/supabase/client"
-import { IcoAlert, IcoEye, IcoLoader, IcoLock, IcoMail } from "@/components/AppIcons"
+import { IcoAlert, IcoDumbbellLogo, IcoEye, IcoLoader, IcoLock, IcoMail } from "@/components/AppIcons"
 
 // ─────────────────────────────────────────────
 //  Input field component
@@ -157,10 +157,7 @@ export default function SignInPage() {
             justifyContent: "center",
             margin: "0 auto 16px",
           }}>
-            <svg width="26" height="26" viewBox="0 0 24 24" fill="none"
-              stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M6 5v14M18 5v14M6 9h12M6 15h12" />
-            </svg>
+            <IcoDumbbellLogo size={26} color="#fff" />
           </div>
           <h1 style={{
             fontSize: 24,

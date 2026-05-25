@@ -9,6 +9,7 @@ import {
   IcoCalendar,
   IcoCheck,
   IcoChevLeft as IcoChevronLeft,
+  IcoDumbbellLogo,
   IcoEye,
   IcoLoader,
   IcoLock,
@@ -374,9 +375,7 @@ export default function SignUpPage() {
             background: "var(--accent)", borderRadius: 10,
             display: "flex", alignItems: "center", justifyContent: "center",
           }}>
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M6 5v14M18 5v14M6 9h12M6 15h12" />
-            </svg>
+            <IcoDumbbellLogo size={18} color="#fff" />
           </div>
           <span style={{ fontSize: 16, fontWeight: 600, color: "var(--text-primary)" }}>GainLog</span>
         </div>
