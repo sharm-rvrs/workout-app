@@ -1,3 +1,5 @@
+import { createClient } from "@/lib/supabase/client"
+
 export type WorkoutIconKey =
   | "push"
   | "legs"
@@ -52,6 +54,7 @@ export interface ExerciseLog {
   exerciseName: string
   isCustom?: boolean
   isTimed?: boolean
+  youtubeUrl?: string
   sets: SetEntry[]
   notes?: string
 }
@@ -470,37 +473,377 @@ export function buildYoutubeUrl(search: string): string {
 
 const STORAGE_KEY = "workout_logs_v2"
 
+type SetEntryRow = {
+  set_number: number
+  weight_kg: number | null
+  reps: number | null
+  duration_seconds: number | null
+}
+
+type ExerciseLogRow = {
+  id: string
+  workout_log_id: string
+  exercise_id: string
+  exercise_name: string
+  is_custom: boolean | null
+  is_timed: boolean | null
+  notes: string | null
+  order_index: number | null
+  set_entries: SetEntryRow[] | null
+}
+
+type WorkoutLogRow = {
+  id: string
+  user_id: string
+  date: string
+  day_key: DayKey
+  day_override: DayKey | null
+  skipped_exercise_ids: string[] | null
+  completed_at: string
+  exercise_logs: ExerciseLogRow[] | null
+}
+
+let logsCache: WorkoutLog[] = []
+let hydrated = false
+let hydratingPromise: Promise<WorkoutLog[]> | null = null
+let workoutLogsSupportsProgramColumns: boolean | null = null
+let workoutDetailsSyncSupported: boolean | null = null
+
+function emitLogsUpdated() {
+  if (typeof window === "undefined") return
+  window.dispatchEvent(new Event("workout-logs-updated"))
+}
+
+function reportSyncError(scope: string, error: unknown) {
+  console.error(`[workout-log-sync:${scope}]`, error)
+}
+
+function isMissingColumnError(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false
+  const maybeCode = (error as { code?: unknown }).code
+  return maybeCode === "PGRST204"
+}
+
+function normalizeLogs(logs: WorkoutLog[]): WorkoutLog[] {
+  return logs
+    .map((l) => ({
+      ...l,
+      skippedExerciseIds: l.skippedExerciseIds ?? [],
+      exercises: l.exercises.map((ex) => ({
+        ...ex,
+        sets: ex.sets.slice().sort((a, b) => a.setNumber - b.setNumber),
+      })),
+    }))
+    .sort((a, b) => b.date.localeCompare(a.date))
+}
+
+function mapRowToLog(row: WorkoutLogRow): WorkoutLog {
+  const exercises = (row.exercise_logs ?? [])
+    .slice()
+    .sort((a, b) => (a.order_index ?? 0) - (b.order_index ?? 0))
+    .map((exercise) => ({
+      exerciseId: exercise.exercise_id,
+      exerciseName: exercise.exercise_name,
+      isCustom: !!exercise.is_custom,
+      isTimed: !!exercise.is_timed,
+      notes: exercise.notes ?? "",
+      sets: (exercise.set_entries ?? [])
+        .slice()
+        .sort((a, b) => a.set_number - b.set_number)
+        .map((setRow) => ({
+          setNumber: setRow.set_number,
+          weightKg: setRow.weight_kg ?? undefined,
+          reps: setRow.reps ?? undefined,
+          durationSeconds: setRow.duration_seconds ?? undefined,
+        })),
+    }))
+
+  return {
+    id: row.id,
+    date: row.date,
+    dayKey: row.day_key,
+    dayOverride: row.day_override ?? undefined,
+    skippedExerciseIds: row.skipped_exercise_ids ?? [],
+    exercises,
+    completedAt: row.completed_at,
+  }
+}
+
+function persistCacheToLocalStorage() {
+  if (typeof window === "undefined") return
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(logsCache))
+  } catch {
+    // Ignore local cache persistence failures.
+  }
+}
+
+function loadLocalCache() {
+  if (typeof window === "undefined") return
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY)
+    if (!raw) return
+    const parsed = JSON.parse(raw) as WorkoutLog[]
+    logsCache = normalizeLogs(parsed)
+  } catch {
+    logsCache = []
+  }
+}
+
+async function hydrateLogsFromSupabase(force = false): Promise<WorkoutLog[]> {
+  if (typeof window === "undefined") return []
+  if (hydrated && !force) return logsCache
+  if (hydratingPromise && !force) return hydratingPromise
+
+  hydratingPromise = (async () => {
+    try {
+      const supabase = createClient()
+      const { data: userData, error: userError } = await supabase.auth.getUser()
+      if (userError || !userData.user) {
+        hydrated = true
+        return logsCache
+      }
+
+      const { data, error } = await supabase
+        .from("workout_logs")
+        .select(`
+          id,
+          user_id,
+          date,
+          day_key,
+          day_override,
+          skipped_exercise_ids,
+          completed_at,
+          exercise_logs (
+            id,
+            workout_log_id,
+            exercise_id,
+            exercise_name,
+            is_custom,
+            is_timed,
+            notes,
+            order_index,
+            set_entries (
+              set_number,
+              weight_kg,
+              reps,
+              duration_seconds
+            )
+          )
+        `)
+        .eq("user_id", userData.user.id)
+        .order("date", { ascending: false })
+
+      if (error) throw error
+
+      logsCache = normalizeLogs(((data ?? []) as WorkoutLogRow[]).map(mapRowToLog))
+      hydrated = true
+      persistCacheToLocalStorage()
+      emitLogsUpdated()
+      return logsCache
+    } catch {
+      hydrated = true
+      return logsCache
+    } finally {
+      hydratingPromise = null
+    }
+  })()
+
+  return hydratingPromise
+}
+
+async function saveLogToSupabase(log: WorkoutLog): Promise<void> {
+  if (typeof window === "undefined") return
+  const supabase = createClient()
+  const { data: userData, error: userError } = await supabase.auth.getUser()
+  if (userError || !userData.user) return
+
+  const userId = userData.user.id
+
+  const upsertWithProgramColumns = async () => {
+    return supabase.from("workout_logs").upsert({
+      id: log.id,
+      user_id: userId,
+      date: log.date,
+      day_key: log.dayKey,
+      day_override: log.dayOverride ?? null,
+      skipped_exercise_ids: log.skippedExerciseIds,
+      completed_at: log.completedAt,
+    })
+  }
+
+  const upsertLegacyColumns = async () => {
+    return supabase.from("workout_logs").upsert({
+      id: log.id,
+      user_id: userId,
+      date: log.date,
+      completed_at: log.completedAt,
+    })
+  }
+
+  if (workoutLogsSupportsProgramColumns === false) {
+    const { error: legacyError } = await upsertLegacyColumns()
+    if (legacyError) throw legacyError
+  } else {
+    const { error: upsertError } = await upsertWithProgramColumns()
+    if (upsertError) {
+      if (isMissingColumnError(upsertError)) {
+        workoutLogsSupportsProgramColumns = false
+        const { error: legacyError } = await upsertLegacyColumns()
+        if (legacyError) throw legacyError
+      } else {
+        throw upsertError
+      }
+    } else {
+      workoutLogsSupportsProgramColumns = true
+    }
+  }
+
+  // Older schemas may not support detailed child rows in exercise_logs/set_entries.
+  // In that case, keep parent workout_logs sync and skip child sync to avoid noisy errors.
+  if (workoutDetailsSyncSupported === false) {
+    return
+  }
+
+  try {
+    // Replace children atomically-ish by deleting previous exercise logs then re-inserting.
+    const { data: existingExercises } = await supabase
+      .from("exercise_logs")
+      .select("id")
+      .eq("workout_log_id", log.id)
+
+    const exerciseLogIds = (existingExercises ?? []).map((e) => e.id as string)
+
+    if (exerciseLogIds.length > 0) {
+      await supabase.from("set_entries").delete().in("exercise_log_id", exerciseLogIds)
+      await supabase.from("exercise_logs").delete().eq("workout_log_id", log.id)
+    }
+
+    for (let i = 0; i < log.exercises.length; i++) {
+      const exercise = log.exercises[i]
+      const { data: insertedExercise, error: exerciseError } = await supabase
+        .from("exercise_logs")
+        .insert({
+          workout_log_id: log.id,
+          exercise_id: exercise.exerciseId,
+          exercise_name: exercise.exerciseName,
+          is_custom: !!exercise.isCustom,
+          is_timed: !!exercise.isTimed,
+          notes: exercise.notes ?? null,
+          order_index: i,
+        })
+        .select("id")
+        .single()
+
+      if (exerciseError || !insertedExercise?.id) {
+        throw exerciseError ?? new Error("Failed to insert exercise log")
+      }
+
+      if (exercise.sets.length > 0) {
+        const rows = exercise.sets.map((set) => ({
+          exercise_log_id: insertedExercise.id,
+          set_number: set.setNumber,
+          weight_kg: set.weightKg ?? null,
+          reps: set.reps ?? null,
+          duration_seconds: set.durationSeconds ?? null,
+        }))
+
+        const { error: setError } = await supabase.from("set_entries").insert(rows)
+        if (setError) throw setError
+      }
+    }
+
+    workoutDetailsSyncSupported = true
+  } catch (error) {
+    if (isMissingColumnError(error)) {
+      workoutDetailsSyncSupported = false
+      return
+    }
+
+    throw error
+  }
+}
+
+async function deleteLogFromSupabase(id: string): Promise<void> {
+  if (typeof window === "undefined") return
+  const supabase = createClient()
+  const { data: existingExercises } = await supabase
+    .from("exercise_logs")
+    .select("id")
+    .eq("workout_log_id", id)
+
+  const exerciseLogIds = (existingExercises ?? []).map((e) => e.id as string)
+  if (exerciseLogIds.length > 0) {
+    await supabase.from("set_entries").delete().in("exercise_log_id", exerciseLogIds)
+    await supabase.from("exercise_logs").delete().eq("workout_log_id", id)
+  }
+
+  await supabase.from("workout_logs").delete().eq("id", id)
+}
+
+// Keep signature unchanged for legacy callers.
 export function savelog(log: WorkoutLog): void {
-  const existing = getLogs()
+  if (!hydrated) loadLocalCache()
+
+  const existing = [...logsCache]
   const idx = existing.findIndex((l) => l.date === log.date && l.dayKey === log.dayKey)
   if (idx >= 0) {
     existing[idx] = log
   } else {
     existing.push(log)
   }
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(existing))
+
+  logsCache = normalizeLogs(existing)
+  persistCacheToLocalStorage()
+  emitLogsUpdated()
+
+  void saveLogToSupabase(log).catch((error) => {
+    reportSyncError("save", error)
+  })
 }
 
+// Keep signature unchanged for legacy callers.
 export function getLogs(): WorkoutLog[] {
   if (typeof window === "undefined") return []
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY)
-    if (!raw) return []
-    const logs = JSON.parse(raw) as WorkoutLog[]
-    return logs.map((l) => ({
-      ...l,
-      skippedExerciseIds: l.skippedExerciseIds ?? [],
-    }))
-  } catch {
-    return []
+  if (!hydrated) {
+    loadLocalCache()
+    void hydrateLogsFromSupabase()
   }
+  return logsCache
 }
 
+// Keep signature unchanged for legacy callers.
 export function getLogByDate(date: string): WorkoutLog | undefined {
   return getLogs().find((l) => l.date === date)
 }
 
+// Keep signature unchanged for legacy callers.
 export function deleteLog(id: string): void {
-  const updated = getLogs().filter((l) => l.id !== id)
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(updated))
+  if (!hydrated) loadLocalCache()
+  logsCache = logsCache.filter((l) => l.id !== id)
+  persistCacheToLocalStorage()
+  emitLogsUpdated()
+
+  void deleteLogFromSupabase(id).catch((error) => {
+    reportSyncError("delete", error)
+  })
+}
+
+// Async helpers for new async-aware hooks.
+export async function getLogsAsync(force = false): Promise<WorkoutLog[]> {
+  if (!hydrated) loadLocalCache()
+  return hydrateLogsFromSupabase(force)
+}
+
+export async function getLogByDateAsync(date: string): Promise<WorkoutLog | undefined> {
+  const logs = await getLogsAsync()
+  return logs.find((l) => l.date === date)
+}
+
+export async function savelogAsync(log: WorkoutLog): Promise<void> {
+  await saveLogToSupabase(log)
+}
+
+export async function deleteLogAsync(id: string): Promise<void> {
+  await deleteLogFromSupabase(id)
 }

@@ -14,6 +14,7 @@ export function AddExerciseForm({
   const [name, setName] = useState("")
   const [inputType, setInputType] = useState<"reps" | "timed">("reps")
   const [sets, setSets] = useState(3)
+  const [youtubeUrl, setYoutubeUrl] = useState("")
 
   function submit() {
     if (!name.trim()) return
@@ -22,6 +23,7 @@ export function AddExerciseForm({
       exerciseName: name.trim(),
       isCustom: true,
       isTimed: inputType === "timed", // stored on the log
+      youtubeUrl: youtubeUrl.trim() || undefined,
       sets: Array.from({ length: sets }, (_, i) => ({
         setNumber: i + 1,
         weightKg: undefined,
@@ -64,6 +66,13 @@ export function AddExerciseForm({
           onChange={(e) => setName(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && submit()}
           autoFocus
+          style={inputStyle}
+        />
+
+        <input
+          placeholder="YouTube URL (optional)"
+          value={youtubeUrl}
+          onChange={(e) => setYoutubeUrl(e.target.value)}
           style={inputStyle}
         />
 

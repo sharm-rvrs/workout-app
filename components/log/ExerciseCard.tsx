@@ -13,6 +13,21 @@ import {
   IcoYoutube,
 } from "@/components/AppIcons"
 import { SetRow } from "./SetRow"
+import { RestTimer } from "./RestTimer"
+
+function normalizeYoutubeUrl(raw: string): string | null {
+  const val = raw.trim()
+  if (!val) return null
+  if (val.startsWith("http://") || val.startsWith("https://")) return val
+  if (val.startsWith("youtube.com") || val.startsWith("www.youtube.com") || val.startsWith("youtu.be")) {
+    return `https://${val}`
+  }
+  return null
+}
+
+function toSearchQuery(text: string): string {
+  return text.trim().toLowerCase().replace(/\s+/g, "+")
+}
 
 export function ExerciseCard({
   exercise,
@@ -30,6 +45,10 @@ export function ExerciseCard({
   const [open, setOpen] = useState(defaultOpen)
   const [editingName, setEditingName] = useState(false)
   const [nameVal, setNameVal] = useState(log.exerciseName)
+  const [restDuration, setRestDuration] = useState(90)
+  const [restAutoStartToken, setRestAutoStartToken] = useState(0)
+  const [editingYoutube, setEditingYoutube] = useState(false)
+  const [youtubeVal, setYoutubeVal] = useState(log.youtubeUrl ?? "")
 
   const isTimed: boolean = log.isTimed !== undefined ? log.isTimed : !!(exercise?.duration && !exercise?.reps)
 
@@ -37,6 +56,12 @@ export function ExerciseCard({
   const showTip = !!exercise?.tip && nameMatchesTemplate
 
   const hasData = log.sets.some((s) => s.weightKg || s.reps || s.durationSeconds)
+
+  const manualYoutubeUrl = normalizeYoutubeUrl(log.youtubeUrl ?? youtubeVal)
+  const nameSearch = toSearchQuery(log.exerciseName)
+  const fallbackSearch = toSearchQuery(exercise?.youtubeSearch ?? "workout exercise form tutorial")
+  const youtubeHref = manualYoutubeUrl
+    ?? buildYoutubeUrl(nameSearch ? `${nameSearch}+tutorial+form+how+to` : fallbackSearch)
 
   function updateSet(i: number, updated: SetEntry) {
     const sets = [...log.sets]
@@ -59,6 +84,19 @@ export function ExerciseCard({
   function saveName() {
     onUpdate({ ...log, exerciseName: nameVal.trim() || log.exerciseName })
     setEditingName(false)
+  }
+
+  function saveYoutubeUrl() {
+    const cleaned = youtubeVal.trim()
+    onUpdate({
+      ...log,
+      youtubeUrl: cleaned || undefined,
+    })
+    setEditingYoutube(false)
+  }
+
+  function handleSetCompleted() {
+    setRestAutoStartToken((prev) => prev + 1)
   }
 
   return (
@@ -155,9 +193,9 @@ export function ExerciseCard({
         </div>
 
         <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
-          {exercise && (
+          {!!youtubeHref && (
             <a
-              href={buildYoutubeUrl(exercise.youtubeSearch)}
+              href={youtubeHref}
               target="_blank"
               rel="noopener noreferrer"
               onClick={(e) => e.stopPropagation()}
@@ -179,6 +217,24 @@ export function ExerciseCard({
               <IcoYoutube /> Watch
             </a>
           )}
+          <button
+            onClick={(e) => {
+              e.stopPropagation()
+              setEditingYoutube((v) => !v)
+            }}
+            title="Edit YouTube URL"
+            style={{
+              background: "none",
+              border: "none",
+              cursor: "pointer",
+              color: "var(--text-muted)",
+              padding: 4,
+              display: "flex",
+              opacity: 0.7,
+            }}
+          >
+            <IcoYoutube />
+          </button>
           <button
             onClick={(e) => {
               e.stopPropagation()
@@ -241,6 +297,56 @@ export function ExerciseCard({
             </div>
           )}
 
+          {editingYoutube && (
+            <div
+              style={{
+                background: "var(--bg-elevated)",
+                border: "0.5px solid var(--border-subtle)",
+                borderRadius: "var(--radius-sm)",
+                padding: "8px 10px",
+                marginBottom: 10,
+              }}
+            >
+              <p style={{ fontSize: 11, color: "var(--text-muted)", marginBottom: 6 }}>
+                YouTube URL (optional). If empty, a search link is generated from exercise name.
+              </p>
+              <div style={{ display: "flex", gap: 8 }}>
+                <input
+                  value={youtubeVal}
+                  onChange={(e) => setYoutubeVal(e.target.value)}
+                  placeholder="https://youtube.com/watch?v=..."
+                  style={{
+                    flex: 1,
+                    background: "var(--bg-input)",
+                    border: "0.5px solid var(--border-default)",
+                    borderRadius: "var(--radius-sm)",
+                    color: "var(--text-primary)",
+                    fontSize: 12,
+                    fontFamily: "inherit",
+                    padding: "7px 9px",
+                    outline: "none",
+                  }}
+                />
+                <button
+                  onClick={saveYoutubeUrl}
+                  style={{
+                    background: "var(--accent)",
+                    border: "none",
+                    borderRadius: "var(--radius-sm)",
+                    color: "#fff",
+                    fontSize: 12,
+                    fontWeight: 500,
+                    padding: "0 10px",
+                    cursor: "pointer",
+                    fontFamily: "inherit",
+                  }}
+                >
+                  Save
+                </button>
+              </div>
+            </div>
+          )}
+
           {/* Column headers for weight × reps */}
           {!isTimed && (
             <div style={{ display: "flex", gap: 8, paddingLeft: 46, marginBottom: 2 }}>
@@ -272,10 +378,17 @@ export function ExerciseCard({
                 isTimed={isTimed}
                 canDelete={log.sets.length > 1}
                 onChange={(u) => updateSet(i, u)}
+                onSetCompleted={handleSetCompleted}
                 onDelete={() => deleteSet(i)}
               />
             ))}
           </div>
+
+          <RestTimer
+            durationSeconds={restDuration}
+            onDurationChange={setRestDuration}
+            autoStartToken={restAutoStartToken}
+          />
 
           <button
             onClick={addSet}

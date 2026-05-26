@@ -3,8 +3,11 @@
 import { useState, useEffect, useCallback } from "react"
 import {
   getLogs,
+  getLogsAsync,
   savelog,
+  savelogAsync,
   deleteLog,
+  deleteLogAsync,
   WORKOUT_PLAN,
   type WorkoutLog,
   type ExerciseLog,
@@ -16,18 +19,55 @@ export function useWorkoutLog() {
   const [isLoaded, setIsLoaded] = useState(false)
 
   useEffect(() => {
-    setLogs(getLogs())
-    setIsLoaded(true)
+    let cancelled = false
+
+    async function load() {
+      try {
+        const loaded = await getLogsAsync()
+        if (!cancelled) {
+          setLogs(loaded)
+        }
+      } finally {
+        if (!cancelled) {
+          setIsLoaded(true)
+        }
+      }
+    }
+
+    function onLogsUpdated() {
+      if (cancelled) return
+      setLogs(getLogs())
+    }
+
+    void load()
+    window.addEventListener("workout-logs-updated", onLogsUpdated)
+
+    return () => {
+      cancelled = true
+      window.removeEventListener("workout-logs-updated", onLogsUpdated)
+    }
   }, [])
 
-  const save = useCallback((log: WorkoutLog) => {
-    savelog(log)
+  const save = useCallback(async (log: WorkoutLog) => {
+    savelog(log) // optimistic local state/cache update
     setLogs(getLogs())
+    try {
+      await savelogAsync(log)
+    } catch {
+      const latest = await getLogsAsync(true)
+      setLogs(latest)
+    }
   }, [])
 
-  const remove = useCallback((id: string) => {
-    deleteLog(id)
+  const remove = useCallback(async (id: string) => {
+    deleteLog(id) // optimistic local state/cache update
     setLogs(getLogs())
+    try {
+      await deleteLogAsync(id)
+    } catch {
+      const latest = await getLogsAsync(true)
+      setLogs(latest)
+    }
   }, [])
 
   const getByDate = useCallback(
@@ -42,26 +82,34 @@ export function useStreak() {
   const [streak, setStreak] = useState(0)
 
   useEffect(() => {
-    const logs = getLogs()
-    if (logs.length === 0) { setStreak(0); return }
+    let cancelled = false
 
-    const loggedDates = new Set(logs.map((l) => l.date))
-    let count = 0
-    const today = new Date()
-    today.setHours(0, 0, 0, 0)
+    async function load() {
+      const logs = await getLogsAsync()
+      if (cancelled) return
+      if (logs.length === 0) { setStreak(0); return }
 
-    for (let i = 0; i < 365; i++) {
-      const d = new Date(today)
-      d.setDate(today.getDate() - i)
-      if (d.getDay() === 0) continue // skip Sundays
-      const key = d.toISOString().split("T")[0]
-      if (loggedDates.has(key)) {
-        count++
-      } else if (i > 0) {
-        break
+      const loggedDates = new Set(logs.map((l) => l.date))
+      let count = 0
+      const today = new Date()
+      today.setHours(0, 0, 0, 0)
+
+      for (let i = 0; i < 365; i++) {
+        const d = new Date(today)
+        d.setDate(today.getDate() - i)
+        if (d.getDay() === 0) continue // skip Sundays
+        const key = d.toISOString().split("T")[0]
+        if (loggedDates.has(key)) {
+          count++
+        } else if (i > 0) {
+          break
+        }
       }
+      if (!cancelled) setStreak(count)
     }
-    setStreak(count)
+
+    void load()
+    return () => { cancelled = true }
   }, [])
 
   return streak
@@ -79,27 +127,39 @@ export function usePersonalBests(): PersonalBest[] {
   const [bests, setBests] = useState<PersonalBest[]>([])
 
   useEffect(() => {
-    const logs = getLogs()
-    const map = new Map<string, PersonalBest>()
+    let cancelled = false
 
-    for (const log of logs) {
-      for (const ex of log.exercises) {
-        for (const set of ex.sets) {
-          if (!set.weightKg) continue
-          const existing = map.get(ex.exerciseId)
-          if (!existing || set.weightKg > existing.weightKg) {
-            map.set(ex.exerciseId, {
-              exerciseId: ex.exerciseId,
-              exerciseName: ex.exerciseName,
-              weightKg: set.weightKg,
-              reps: set.reps ?? 0,
-              date: log.date,
-            })
+    async function load() {
+      const logs = await getLogsAsync()
+      if (cancelled) return
+
+      const map = new Map<string, PersonalBest>()
+
+      for (const log of logs) {
+        for (const ex of log.exercises) {
+          for (const set of ex.sets) {
+            if (!set.weightKg) continue
+            const existing = map.get(ex.exerciseId)
+            if (!existing || set.weightKg > existing.weightKg) {
+              map.set(ex.exerciseId, {
+                exerciseId: ex.exerciseId,
+                exerciseName: ex.exerciseName,
+                weightKg: set.weightKg,
+                reps: set.reps ?? 0,
+                date: log.date,
+              })
+            }
           }
         }
       }
+
+      if (!cancelled) {
+        setBests(Array.from(map.values()))
+      }
     }
-    setBests(Array.from(map.values()))
+
+    void load()
+    return () => { cancelled = true }
   }, [])
 
   return bests
@@ -109,14 +169,25 @@ export function useCurrentWeek(): number {
   const [week, setWeek] = useState(1)
 
   useEffect(() => {
-    const logs = getLogs()
-    if (logs.length === 0) { setWeek(1); return }
-    const sorted = [...logs].sort((a, b) => a.date.localeCompare(b.date))
-    const firstDate = new Date(sorted[0].date)
-    const diffDays = Math.floor(
-      (Date.now() - firstDate.getTime()) / (1000 * 60 * 60 * 24)
-    )
-    setWeek(Math.min(12, Math.floor(diffDays / 7) + 1))
+    let cancelled = false
+
+    async function load() {
+      const logs = await getLogsAsync()
+      if (cancelled) return
+      if (logs.length === 0) { setWeek(1); return }
+
+      const sorted = [...logs].sort((a, b) => a.date.localeCompare(b.date))
+      const firstDate = new Date(sorted[0].date)
+      const diffDays = Math.floor(
+        (Date.now() - firstDate.getTime()) / (1000 * 60 * 60 * 24)
+      )
+      if (!cancelled) {
+        setWeek(Math.min(12, Math.floor(diffDays / 7) + 1))
+      }
+    }
+
+    void load()
+    return () => { cancelled = true }
   }, [])
 
   return week

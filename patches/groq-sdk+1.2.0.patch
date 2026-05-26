@@ -1,0 +1,13 @@
+diff --git a/node_modules/groq-sdk/src/tsconfig.json b/node_modules/groq-sdk/src/tsconfig.json
+index c550e29..80036d3 100644
+--- a/node_modules/groq-sdk/src/tsconfig.json
++++ b/node_modules/groq-sdk/src/tsconfig.json
+@@ -6,6 +6,7 @@
+   "compilerOptions": {
+     "target": "ES2015",
+     "lib": ["DOM", "DOM.Iterable", "ES2018"],
+-    "moduleResolution": "node"
++    "moduleResolution": "node",
++    "ignoreDeprecations": "6.0"
+   }
+ }

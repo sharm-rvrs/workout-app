@@ -10,6 +10,7 @@ export function SetRow({
   index,
   isTimed,
   onChange,
+  onSetCompleted,
   onDelete,
   canDelete,
 }: {
@@ -17,6 +18,7 @@ export function SetRow({
   index: number
   isTimed: boolean
   onChange: (s: SetEntry) => void
+  onSetCompleted?: () => void
   onDelete: () => void
   canDelete: boolean
 }) {
@@ -51,7 +53,28 @@ export function SetRow({
     }
     const num = parseFloat(raw)
     const seconds = unit === "min" ? Math.round(num * 60) : Math.round(num)
-    onChange({ ...set, durationSeconds: seconds })
+    const next = { ...set, durationSeconds: seconds }
+    const wasComplete = (set.durationSeconds ?? 0) > 0
+    const isComplete = (next.durationSeconds ?? 0) > 0
+    onChange(next)
+    if (!wasComplete && isComplete) {
+      onSetCompleted?.()
+    }
+  }
+
+  function handleWeightChange(raw: string) {
+    const next = { ...set, weightKg: raw ? Number(raw) : undefined }
+    onChange(next)
+  }
+
+  function handleRepsChange(raw: string) {
+    const next = { ...set, reps: raw ? Number(raw) : undefined }
+    const wasComplete = (set.reps ?? 0) > 0
+    const isComplete = (next.reps ?? 0) > 0
+    onChange(next)
+    if (!wasComplete && isComplete) {
+      onSetCompleted?.()
+    }
   }
 
   return (
@@ -109,9 +132,7 @@ export function SetRow({
             inputMode="decimal"
             placeholder="kg"
             value={set.weightKg ?? ""}
-            onChange={(e) =>
-              onChange({ ...set, weightKg: e.target.value ? Number(e.target.value) : undefined })
-            }
+            onChange={(e) => handleWeightChange(e.target.value)}
             style={inputStyle}
           />
           <span style={{ fontSize: 13, color: "var(--text-muted)", flexShrink: 0 }}>×</span>
@@ -120,7 +141,7 @@ export function SetRow({
             inputMode="numeric"
             placeholder="reps"
             value={set.reps ?? ""}
-            onChange={(e) => onChange({ ...set, reps: e.target.value ? Number(e.target.value) : undefined })}
+            onChange={(e) => handleRepsChange(e.target.value)}
             style={inputStyle}
           />
         </>

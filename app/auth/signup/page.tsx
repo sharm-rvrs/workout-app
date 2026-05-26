@@ -1,9 +1,10 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import Link from "next/link"
 import { createClient } from "@/lib/supabase/client"
+import type { FitnessLevel, Goal, PendingSignupProfile } from "@/lib/types"
 import {
   IcoAlert,
   IcoCalendar,
@@ -23,15 +24,6 @@ import {
 //  Types
 // ─────────────────────────────────────────────
 
-type Goal =
-  | "recomp"
-  | "lose_fat"
-  | "build_muscle"
-  | "maintain"
-  | "endurance"
-
-type FitnessLevel = "beginner" | "intermediate" | "advanced"
-
 interface FormState {
   // Step 1
   email: string
@@ -46,6 +38,8 @@ interface FormState {
   goal: Goal | null
   fitnessLevel: FitnessLevel | null
 }
+
+const SIGNUP_COOLDOWN_MS = 60_000
 
 // ─────────────────────────────────────────────
 //  Step config
@@ -241,6 +235,8 @@ export default function SignUpPage() {
   const [showPass, setShowPass]        = useState(false)
   const [showConfirm, setShowConfirm]  = useState(false)
   const [loading, setLoading]          = useState(false)
+  const [cooldownUntil, setCooldownUntil] = useState<number | null>(null)
+  const [nowMs, setNowMs] = useState(() => Date.now())
   const [globalError, setGlobalError]  = useState<string | null>(null)
   const [fieldErrors, setFieldErrors]  = useState<Partial<Record<keyof FormState, string>>>({})
 
@@ -256,6 +252,16 @@ export default function SignUpPage() {
     setFieldErrors((prev) => ({ ...prev, [key]: undefined }))
     setGlobalError(null)
   }
+
+  useEffect(() => {
+    if (!cooldownUntil) return
+
+    const timer = setInterval(() => {
+      setNowMs(Date.now())
+    }, 1000)
+
+    return () => clearInterval(timer)
+  }, [cooldownUntil])
 
   // ── Step navigation ─────────────────────────
 
@@ -281,6 +287,9 @@ export default function SignUpPage() {
   // ── Submit ──────────────────────────────────
 
   async function handleSubmit() {
+    const isCooldownActive = !!cooldownUntil && cooldownUntil > Date.now()
+    if (loading || isCooldownActive) return
+
     if (!form.goal || !form.fitnessLevel) {
       setGlobalError("Please select your goal and fitness level.")
       return
@@ -288,65 +297,108 @@ export default function SignUpPage() {
     setLoading(true)
     setGlobalError(null)
 
-    const supabase = createClient()
+    try {
+      const supabase = createClient()
+      const normalizedEmail = form.email.trim().toLowerCase()
+      const age = form.birthday ? calcAge(form.birthday) : null
 
-    // 1. Create auth user
-    const { data: authData, error: signUpError } = await supabase.auth.signUp({
-      email: form.email.trim().toLowerCase(),
-      password: form.password,
-    })
-
-    if (signUpError || !authData.user) {
-      const msg = signUpError?.message ?? "Sign-up failed."
-      if (msg.toLowerCase().includes("already")) {
-        setGlobalError("An account with this email already exists. Try signing in.")
-      } else {
-        setGlobalError(msg)
-      }
-      setLoading(false)
-      return
-    }
-
-    const userId = authData.user.id
-    const age = form.birthday ? calcAge(form.birthday) : null
-
-    // 2. Update profile (trigger already created the row — we just fill it in)
-    const { error: profileError } = await supabase
-      .from("profiles")
-      .update({
-        full_name:     form.fullName.trim(),
-        birthday:      form.birthday || null,
+      const pendingProfile: PendingSignupProfile = {
+        email: normalizedEmail,
+        fullName: form.fullName.trim(),
+        birthday: form.birthday || null,
         age,
-        weight_kg:     form.weightKg ? Number(form.weightKg) : null,
-        height_cm:     form.heightCm ? Number(form.heightCm) : null,
-        goal:          form.goal,
-        fitness_level: form.fitnessLevel,
+        weightKg: form.weightKg ? Number(form.weightKg) : null,
+        heightCm: form.heightCm ? Number(form.heightCm) : null,
+        goal: form.goal,
+        fitnessLevel: form.fitnessLevel,
+      }
+
+      // Keep profile fields locally so they can be completed after first verified sign-in.
+      localStorage.setItem("pending_signup_profile", JSON.stringify(pendingProfile))
+
+      // 1. Create auth user.
+      // Do not send metadata here because strict DB auth hooks/triggers can reject signup payloads.
+      const { data: authData, error: signUpError } = await supabase.auth.signUp({
+        email: normalizedEmail,
+        password: form.password,
       })
-      .eq("id", userId)
 
-    if (profileError) {
-      console.error("Profile update error:", profileError)
-      // Non-fatal — continue anyway, user can fill in profile later
+      if (signUpError || !authData.user) {
+        localStorage.removeItem("pending_signup_profile")
+        const msg = signUpError?.message ?? "Sign-up failed."
+        const code = signUpError?.code?.toLowerCase() ?? ""
+        const lowerMsg = msg.toLowerCase()
+
+        if (code === "over_email_send_rate_limit" || lowerMsg.includes("email rate limit")) {
+          const until = Date.now() + SIGNUP_COOLDOWN_MS
+          setCooldownUntil(until)
+          setNowMs(Date.now())
+          setGlobalError("Too many signup attempts in a short time. Please wait before trying again.")
+        } else if (lowerMsg.includes("already")) {
+          setGlobalError("An account with this email already exists. Try signing in.")
+        } else if (lowerMsg.includes("database") || lowerMsg.includes("saving new user")) {
+          setGlobalError("Account could not be created due to a server auth rule. Please contact support.")
+        } else {
+          setGlobalError(msg)
+        }
+        return
+      }
+
+      const userId = authData.user.id
+
+      // 2. If a session exists, we can immediately finish setup and send to onboarding.
+      if (authData.session) {
+        const { error: profileError } = await supabase
+          .from("profiles")
+          .update({
+            full_name: form.fullName.trim(),
+            birthday: form.birthday || null,
+            age,
+            weight_kg: form.weightKg ? Number(form.weightKg) : null,
+            height_cm: form.heightCm ? Number(form.heightCm) : null,
+            goal: form.goal,
+            fitness_level: form.fitnessLevel,
+          })
+          .eq("id", userId)
+
+        if (profileError) {
+          console.error("Profile update error:", profileError)
+        }
+
+        const { error: programError } = await supabase.rpc("copy_default_program", {
+          p_user_id: userId,
+        })
+
+        if (programError) {
+          console.error("Program copy error:", programError)
+        }
+
+        localStorage.removeItem("pending_signup_profile")
+
+        router.push("/onboarding")
+        router.refresh()
+        return
+      }
+
+      // 3. Email confirmation flow: account is created, but no session yet.
+      // Redirect to sign-in with context instead of treating it as a failed signup.
+      router.push(`/auth/signin?verify=1&email=${encodeURIComponent(normalizedEmail)}`)
+      router.refresh()
+    } catch (err) {
+      console.error("Sign-up error:", err)
+      setGlobalError("We couldn't complete sign-up right now. Please try again.")
+    } finally {
+      setLoading(false)
     }
-
-    // 3. Copy default program for this user
-    const { error: programError } = await supabase.rpc("copy_default_program", {
-      p_user_id: userId,
-    })
-
-    if (programError) {
-      console.error("Program copy error:", programError)
-      // Non-fatal — they can set up program in onboarding
-    }
-
-    // 4. Done — redirect to onboarding
-    router.push("/onboarding")
-    router.refresh()
   }
 
   // ── Step 3 can be submitted ─────────────────
 
   const step3Valid = !!form.goal && !!form.fitnessLevel
+  const cooldownRemainingSec = cooldownUntil
+    ? Math.max(0, Math.ceil((cooldownUntil - nowMs) / 1000))
+    : 0
+  const isCooldownActive = cooldownRemainingSec > 0
 
   // ── Layout ──────────────────────────────────
 
@@ -409,7 +461,7 @@ export default function SignUpPage() {
         {/* ── STEP 1: Account ── */}
         {step === 1 && (
           <div style={{
-            background: "var(--bg-surface)",
+            background: "var(--bg-surface)", 
             border: "0.5px solid var(--border-subtle)",
             borderRadius: "var(--radius-xl)", padding: "24px 20px",
             display: "flex", flexDirection: "column", gap: 14,
@@ -633,14 +685,14 @@ export default function SignUpPage() {
             </button>
           ) : (
             <button type="button" onClick={handleSubmit}
-              disabled={!step3Valid || loading}
+              disabled={!step3Valid || loading || isCooldownActive}
               style={{
                 flex: 1,
-                background: step3Valid && !loading ? "var(--accent)" : "var(--bg-elevated)",
+                background: step3Valid && !loading && !isCooldownActive ? "var(--accent)" : "var(--bg-elevated)",
                 border: "none", borderRadius: "var(--radius-md)",
-                color: step3Valid && !loading ? "#fff" : "var(--text-muted)",
+                color: step3Valid && !loading && !isCooldownActive ? "#fff" : "var(--text-muted)",
                 fontSize: 15, fontWeight: 500, padding: "13px 0",
-                cursor: step3Valid && !loading ? "pointer" : "default",
+                cursor: step3Valid && !loading && !isCooldownActive ? "pointer" : "default",
                 fontFamily: "inherit",
                 display: "flex", alignItems: "center",
                 justifyContent: "center", gap: 8,
@@ -651,6 +703,8 @@ export default function SignUpPage() {
                   <IcoLoader />
                   Setting up your account…
                 </>
+              ) : isCooldownActive ? (
+                `Try again in ${cooldownRemainingSec}s`
               ) : (
                 "Create account"
               )}

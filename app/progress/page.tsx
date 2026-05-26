@@ -3,8 +3,8 @@
 import { useState, useEffect } from "react"
 import Link from "next/link"
 import type { CalendarDay, PersonalBest } from "@/lib/types"
-import { getLogs, WORKOUT_PLAN, type WorkoutLog } from "@/lib/workout-data"
-import { todayStrPH, formatDateFull, formatDateShort, parseLocalDate } from "@/lib/dates"
+import { getLogs, getLogsAsync, WORKOUT_PLAN, type WorkoutLog } from "@/lib/workout-data"
+import { todayStrPH, formatDateFull, formatDateShort } from "@/lib/dates"
 import WorkoutIcon, { DayBadge } from "@/components/WorkoutIcon"
 import {
   IcoCalendarSimple,
@@ -163,18 +163,39 @@ const WEEK_DAYS = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"]
 
 export default function ProgressPage() {
   const [logs, setLogs] = useState<WorkoutLog[]>([])
-  const [mounted, setMounted] = useState(false)
+  const [isLoaded, setIsLoaded] = useState(false)
   const [selectedLog, setSelectedLog] = useState<WorkoutLog | null>(null)
   const [activeTab, setActiveTab] = useState<"calendar" | "history" | "pbs">("calendar")
   const now = new Date()
   const [calYear, setCalYear] = useState(now.getFullYear())
   const [calMonth, setCalMonth] = useState(now.getMonth())
 
-  useEffect(() => { setLogs(getLogs()); setMounted(true) }, [])
+  useEffect(() => {
+    let cancelled = false
 
-  if (!mounted) return null
+    async function loadLogs() {
+      const loaded = await getLogsAsync()
+      if (cancelled) return
+      setLogs(loaded)
+      setIsLoaded(true)
+    }
 
-  const today = todayStrPH()
+    function onLogsUpdated() {
+      if (cancelled) return
+      setLogs(getLogs())
+    }
+
+    void loadLogs()
+    window.addEventListener("workout-logs-updated", onLogsUpdated)
+
+    return () => {
+      cancelled = true
+      window.removeEventListener("workout-logs-updated", onLogsUpdated)
+    }
+  }, [])
+
+  if (!isLoaded) return null
+
   const logMap = new Map(logs.map((l) => [l.date, l]))
   const streak = computeStreak(logs)
   const pbs = computePersonalBests(logs)

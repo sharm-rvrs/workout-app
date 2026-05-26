@@ -20,7 +20,7 @@ const AUTH_ROUTES = [
   "/auth/signup",
 ]
 
-export async function middleware(request: NextRequest) {
+export async function proxy(request: NextRequest) {
   let supabaseResponse = NextResponse.next({
     request,
   })
@@ -77,6 +77,8 @@ export async function middleware(request: NextRequest) {
   if (
     user &&
     !pathname.startsWith("/onboarding") &&
+    !pathname.startsWith("/program") &&
+    !pathname.startsWith("/profile") &&
     !pathname.startsWith("/auth") &&
     !pathname.startsWith("/api")
   ) {
@@ -108,7 +110,7 @@ export async function middleware(request: NextRequest) {
 }
 
 // ─────────────────────────────────────────────
-//  Matcher — which routes the middleware runs on.
+//  Matcher — which routes the proxy runs on.
 //  Excludes static files, images, and favicon.
 // ─────────────────────────────────────────────
 

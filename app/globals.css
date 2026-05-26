@@ -107,6 +107,7 @@
   .page {
     min-height: 100dvh;
     padding-bottom: calc(var(--nav-height) + 24px);
+    padding-top: calc(env(safe-area-inset-top) + 52px);
   }
 
   .content-wrap {
@@ -117,12 +118,20 @@
   }
 
   @media (min-width: 640px) {
+    .page {
+      padding-top: calc(env(safe-area-inset-top) + 44px);
+    }
+
     .content-wrap {
       padding: 0 32px;
     }
   }
 
   @media (min-width: 1024px) {
+    .page {
+      padding-top: calc(env(safe-area-inset-top) + 22px);
+    }
+
     .content-wrap {
       padding: 0 48px;
     }

@@ -1,7 +1,9 @@
 "use client"
 
 import Link from "next/link"
+import { useEffect, useMemo, useState } from "react"
 import { usePathname } from "next/navigation"
+import { createClient } from "@/lib/supabase/client"
 
 // ─────────────────────────────────────────────
 //  Routes where the nav should NOT appear
@@ -85,6 +87,55 @@ const NAV_ITEMS = [
 
 export default function Nav() {
   const pathname = usePathname()
+  const [avatarLabel, setAvatarLabel] = useState("?")
+
+  useEffect(() => {
+    let cancelled = false
+
+    async function loadProfileBadge() {
+      const supabase = createClient()
+      const {
+        data: { user },
+      } = await supabase.auth.getUser()
+
+      if (!user) {
+        if (!cancelled) setAvatarLabel("?")
+        return
+      }
+
+      const { data } = await supabase
+        .from("profiles")
+        .select("full_name")
+        .eq("id", user.id)
+        .single()
+
+      const fullName = (data?.full_name as string | undefined) ?? ""
+      const parts = fullName
+        .trim()
+        .split(/\s+/)
+        .filter(Boolean)
+
+      let label = ""
+      if (parts.length >= 2) {
+        label = `${parts[0][0]}${parts[1][0]}`
+      } else if (parts.length === 1) {
+        label = parts[0].slice(0, 2)
+      } else {
+        label = user.email?.slice(0, 2) ?? "?"
+      }
+
+      if (!cancelled) {
+        setAvatarLabel(label.toUpperCase())
+      }
+    }
+
+    void loadProfileBadge()
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  const profileActive = useMemo(() => pathname.startsWith("/profile"), [pathname])
 
   // Hide nav on auth + onboarding pages
   if (HIDDEN_ON.some((route) => pathname.startsWith(route))) {
@@ -92,64 +143,100 @@ export default function Nav() {
   }
 
   return (
-    <nav
-      aria-label="Main navigation"
-      style={{
-        position: "fixed",
-        bottom: 0,
-        left: 0,
-        right: 0,
-        height: "var(--nav-height)",
-        background: "rgba(13,13,13,0.92)",
-        backdropFilter: "blur(20px)",
-        WebkitBackdropFilter: "blur(20px)",
-        borderTop: "0.5px solid var(--border-subtle)",
-        display: "flex",
-        zIndex: 50,
-        paddingBottom: "env(safe-area-inset-bottom)",
-      }}
-    >
-      {NAV_ITEMS.map(({ href, label, icon }) => {
-        const active = pathname === href
-        return (
-          <Link
-            key={href}
-            href={href}
-            aria-current={active ? "page" : undefined}
-            style={{
-              flex: 1,
-              display: "flex",
-              flexDirection: "column",
-              alignItems: "center",
-              justifyContent: "center",
-              gap: 4,
-              color: active ? "var(--accent)" : "var(--text-muted)",
-              textDecoration: "none",
-              transition: "color 0.15s",
-              position: "relative",
-              paddingBottom: 4,
-            }}
-          >
-            {/* Active indicator pill */}
-            <span
-              aria-hidden="true"
+    <>
+      <Link
+        href="/profile"
+        aria-current={profileActive ? "page" : undefined}
+        aria-label="Profile"
+        style={{
+          position: "fixed",
+          top: "calc(env(safe-area-inset-top) + 8px)",
+          right: 12,
+          width: "clamp(32px, 9vw, 38px)",
+          height: "clamp(32px, 9vw, 38px)",
+          borderRadius: "50%",
+          background: profileActive ? "var(--accent-dim)" : "rgba(18,18,18,0.9)",
+          border: `0.5px solid ${profileActive ? "var(--accent-border)" : "var(--border-default)"}`,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          fontSize: "clamp(10px, 2.6vw, 12px)",
+          fontWeight: 600,
+          color: profileActive ? "var(--accent)" : "var(--text-secondary)",
+          textDecoration: "none",
+          zIndex: 60,
+          backdropFilter: "blur(12px)",
+          WebkitBackdropFilter: "blur(12px)",
+        }}
+      >
+        {avatarLabel}
+      </Link>
+
+      <nav
+        aria-label="Main navigation"
+        style={{
+          position: "fixed",
+          bottom: 0,
+          left: 0,
+          right: 0,
+          height: "var(--nav-height)",
+          background: "rgba(13,13,13,0.92)",
+          backdropFilter: "blur(20px)",
+          WebkitBackdropFilter: "blur(20px)",
+          borderTop: "0.5px solid var(--border-subtle)",
+          display: "flex",
+          zIndex: 50,
+          paddingBottom: "env(safe-area-inset-bottom)",
+        }}
+      >
+        {NAV_ITEMS.map(({ href, label, icon }) => {
+          const active = pathname === href
+          return (
+            <Link
+              key={href}
+              href={href}
+              aria-current={active ? "page" : undefined}
               style={{
-                position: "absolute",
-                top: 0,
-                width: active ? 28 : 0,
-                height: 2,
-                background: "var(--accent)",
-                borderRadius: "0 0 3px 3px",
-                transition: "width 0.25s cubic-bezier(0.34,1.56,0.64,1)",
+                flex: 1,
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: 3,
+                color: active ? "var(--accent)" : "var(--text-muted)",
+                textDecoration: "none",
+                transition: "color 0.15s",
+                position: "relative",
+                paddingBottom: 3,
               }}
-            />
-            {icon(active)}
-            <span style={{ fontSize: 10, fontWeight: active ? 500 : 400 }}>
-              {label}
-            </span>
-          </Link>
-        )
-      })}
-    </nav>
+            >
+              <span
+                aria-hidden="true"
+                style={{
+                  position: "absolute",
+                  top: 0,
+                  width: active ? 28 : 0,
+                  height: 2,
+                  background: "var(--accent)",
+                  borderRadius: "0 0 3px 3px",
+                  transition: "width 0.25s cubic-bezier(0.34,1.56,0.64,1)",
+                }}
+              />
+              {icon(active)}
+              <span
+                style={{
+                  fontSize: "clamp(8.5px, 2.2vw, 10px)",
+                  fontWeight: active ? 500 : 400,
+                  whiteSpace: "nowrap",
+                  letterSpacing: "0.01em",
+                }}
+              >
+                {label}
+              </span>
+            </Link>
+          )
+        })}
+      </nav>
+    </>
   )
 }

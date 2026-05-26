@@ -1,9 +1,10 @@
 "use client"
 
-import { useState } from "react"
-import { useRouter } from "next/navigation"
+import { Suspense, useState } from "react"
+import { useRouter, useSearchParams } from "next/navigation"
 import Link from "next/link"
 import { createClient } from "@/lib/supabase/client"
+import type { PendingSignupProfile } from "@/lib/types"
 import { IcoAlert, IcoDumbbellLogo, IcoEye, IcoLoader, IcoLock, IcoMail } from "@/components/AppIcons"
 
 // ─────────────────────────────────────────────
@@ -81,9 +82,25 @@ function InputField({
 // ─────────────────────────────────────────────
 
 export default function SignInPage() {
-  const router = useRouter()
+  return (
+    <Suspense fallback={<SignInFallback />}>
+      <SignInContent />
+    </Suspense>
+  )
+}
 
-  const [email, setEmail]         = useState("")
+function SignInFallback() {
+  return <div style={{ minHeight: "100dvh", background: "var(--bg-base)" }} />
+}
+
+function SignInContent() {
+  const router = useRouter()
+  const searchParams = useSearchParams()
+
+  const verifyRequired = searchParams.get("verify") === "1"
+  const prefilledEmail = searchParams.get("email") ?? ""
+
+  const [email, setEmail]         = useState(prefilledEmail)
   const [password, setPassword]   = useState("")
   const [showPass, setShowPass]   = useState(false)
   const [loading, setLoading]     = useState(false)
@@ -99,8 +116,9 @@ export default function SignInPage() {
     setError(null)
 
     const supabase = createClient()
-    const { error: authError } = await supabase.auth.signInWithPassword({
-      email: email.trim().toLowerCase(),
+    const normalizedEmail = email.trim().toLowerCase()
+    const { data: signInData, error: authError } = await supabase.auth.signInWithPassword({
+      email: normalizedEmail,
       password,
     })
 
@@ -118,6 +136,46 @@ export default function SignInPage() {
       }
       setLoading(false)
       return
+    }
+
+    const userId = signInData.user?.id
+
+    // Finalize profile/program setup if this account came from a pending email-confirmation signup.
+    const pendingRaw = localStorage.getItem("pending_signup_profile")
+    if (pendingRaw && userId) {
+      try {
+        const pending = JSON.parse(pendingRaw) as PendingSignupProfile
+        if (pending.email === normalizedEmail) {
+          const { error: profileError } = await supabase
+            .from("profiles")
+            .update({
+              full_name: pending.fullName,
+              birthday: pending.birthday,
+              age: pending.age,
+              weight_kg: pending.weightKg,
+              height_cm: pending.heightCm,
+              goal: pending.goal,
+              fitness_level: pending.fitnessLevel,
+            })
+            .eq("id", userId)
+
+          if (profileError) {
+            console.error("Deferred profile update error:", profileError)
+          }
+
+          const { error: programError } = await supabase.rpc("copy_default_program", {
+            p_user_id: userId,
+          })
+
+          if (programError) {
+            console.error("Deferred program copy error:", programError)
+          }
+
+          localStorage.removeItem("pending_signup_profile")
+        }
+      } catch (pendingError) {
+        console.error("Pending signup payload parse error:", pendingError)
+      }
     }
 
     // Success — middleware will handle redirecting to onboarding if needed
@@ -180,6 +238,26 @@ export default function SignInPage() {
           padding: "28px 24px",
         }}>
           <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+
+            {/* Verification notice */}
+            {verifyRequired && !error && (
+              <div style={{
+                display: "flex",
+                alignItems: "flex-start",
+                gap: 8,
+                background: "rgba(76,175,125,0.10)",
+                border: "0.5px solid rgba(76,175,125,0.35)",
+                borderRadius: "var(--radius-md)",
+                padding: "10px 12px",
+              }}>
+                <span style={{ color: "#4caf7d", flexShrink: 0, marginTop: 1 }}>
+                  <IcoAlert />
+                </span>
+                <p style={{ fontSize: 13, color: "#8fd4ad", lineHeight: 1.5 }}>
+                  Account created. Please check your email and confirm your account before signing in.
+                </p>
+              </div>
+            )}
 
             {/* Error banner */}
             {error && (

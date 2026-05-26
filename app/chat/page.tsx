@@ -1,7 +1,6 @@
 "use client"
 
 import { useState, useRef, useEffect } from "react"
-import buildWorkoutLogContext from "@/lib/workoutLogContext"
 import type { Message } from "@/lib/types"
 import {
   IcoBot,
@@ -77,18 +76,9 @@ export default function ChatPage() {
   const [input, setInput]                 = useState("")
   const [isLoading, setIsLoading]         = useState(false)
   const [showSuggestions, setShowSuggestions] = useState(true)
-  const [logContext, setLogContext]        = useState<string>("")
-  const [logLoaded, setLogLoaded]         = useState(false)
 
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef       = useRef<HTMLTextAreaElement>(null)
-
-  // Build log context once on mount (client-only)
-  useEffect(() => {
-    const ctx = buildWorkoutLogContext()
-    setLogContext(ctx)
-    setLogLoaded(true)
-  }, [])
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
@@ -120,7 +110,6 @@ export default function ChatPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           messages: updated.map((m) => ({ role: m.role, content: m.content })),
-          logContext,   // ← send log data with every request
         }),
       })
 
@@ -157,7 +146,7 @@ export default function ChatPage() {
   const isAtMsgLimit    = msgCount >= MAX_MESSAGES
   const isEmpty         = messages.length === 0
   const canSend         = input.trim().length > 0 && !isLoading && !isOverLimit && !isAtMsgLimit
-  const hasLogData      = logLoaded && logContext !== "No workouts logged yet."
+  const hasServerContext = true
 
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "calc(100dvh - var(--nav-height))", paddingTop: 0 }}>
@@ -175,19 +164,16 @@ export default function ChatPage() {
             <p style={{ fontSize: 15, fontWeight: 500, color: "var(--text-primary)" }}>GainLog AI</p>
             <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
               <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#4caf7d", display: "inline-block" }} />
-              {/* Log data indicator */}
-              {logLoaded && (
-                <span style={{
-                  display: "flex", alignItems: "center", gap: 3,
-                  fontSize: 10, color: hasLogData ? "var(--success)" : "var(--text-muted)",
-                  background: hasLogData ? "var(--success-dim)" : "var(--bg-elevated)",
-                  border: `0.5px solid ${hasLogData ? "rgba(76,175,125,0.3)" : "var(--border-subtle)"}`,
-                  borderRadius: 20, padding: "1px 7px",
-                }}>
-                  <IcoDatabase />
-                  {hasLogData ? "Log loaded" : "No log data"}
-                </span>
-              )}
+              <span style={{
+                display: "flex", alignItems: "center", gap: 3,
+                fontSize: 10, color: hasServerContext ? "var(--success)" : "var(--text-muted)",
+                background: hasServerContext ? "var(--success-dim)" : "var(--bg-elevated)",
+                border: `0.5px solid ${hasServerContext ? "rgba(76,175,125,0.3)" : "var(--border-subtle)"}`,
+                borderRadius: 20, padding: "1px 7px",
+              }}>
+                <IcoDatabase />
+                {hasServerContext ? "Profile + logs live" : "No context"}
+              </span>
             </div>
           </div>
         </div>
@@ -211,8 +197,8 @@ export default function ChatPage() {
             <div>
               <p style={{ fontSize: 16, fontWeight: 500, color: "var(--text-primary)", marginBottom: 6 }}>Your personal gym assistant</p>
               <p style={{ fontSize: 13, color: "var(--text-secondary)", lineHeight: 1.6, maxWidth: 300 }}>
-                {hasLogData
-                  ? "I can see your logged workouts and personal bests. Ask me anything."
+                {hasServerContext
+                  ? "I can see your live profile and logged workouts from Supabase. Ask me anything."
                   : "I know your full program. Log a workout first and I can give personalized feedback."}
               </p>
             </div>

@@ -1,114 +1,123 @@
 # GainLog
 
-Personal body recomposition workout tracker with an AI gym assistant.
+GainLog is a workout tracking app with Supabase authentication, editable weekly programs, progress logging, and a Groq-powered coaching assistant.
 
-Built with Next.js 14, Tailwind CSS, LLaMA 3.3 70B
+## Stack
 
----
+- Next.js 16 (App Router)
+- React 19 + TypeScript
+- Supabase Auth + Postgres
+- Groq SDK (LLaMA models)
+- Tailwind CSS 4 + custom CSS variables
 
-## Features
+## Core Features
 
-- **Daily workout logging** — weight × reps or duration per set, per exercise
-- **Flexible sessions** — skip exercises, add custom ones, swap workout type for any day
-- **Progress tracking** — calendar view, session history, personal bests per exercise
-- **AI assistant** — knows your full program, today's date (PH time), and your logged data
-- **Streak + week counter** — tracks consistency across the 8–12 week program
-- **PWA-ready** — installable on iOS and Android from the browser
+- Multi-step sign up and sign in flows
+- Personalized onboarding and program recommendation
+- Auth-aware home dashboard with per-user today workout from Supabase
+- Bottom nav with profile avatar shortcut and dedicated profile page
+- Weekly program editor (`/program`) with exercise-level customization
+- Workout logging (`/log`) and progress tracking (`/progress`) using per-user `program_days`
+- Per-exercise rest timer and custom YouTube links for added exercises
+- AI chat and AI-generated program feedback
 
----
+## Prerequisites
 
-## Tech Stack
+- Node.js 20+
+- npm 10+
+- A Supabase project
+- A Groq API key
 
-| Layer | Tool |
-|---|---|
-| Framework | Next.js 14 (App Router) |
-| Language | TypeScript |
-| Styling | Tailwind CSS + CSS variables |
-| AI | Groq API — LLaMA 3.3 70B |
-| Storage | localStorage (Supabase-ready) |
-| Deployment | Vercel |
+## Environment Variables
 
----
-
-## Getting Started
-
-### 1. Clone and install
-
-```bash
-git clone https://github.com/YOUR_USERNAME/workout-app.git
-cd workout-app
-npm install
-```
-
-### 2. Set up environment variables
-
-Create a `.env.local` file in the project root:
+Create `.env.local` in the project root:
 
 ```env
-GROQ_API_KEY=your_groq_api_key_here
+NEXT_PUBLIC_SUPABASE_URL=your_supabase_project_url
+NEXT_PUBLIC_SUPABASE_ANON_KEY=your_supabase_anon_key
+GROQ_API_KEY=your_groq_api_key
 ```
 
-Get a free Groq API key at [console.groq.com](https://console.groq.com) → API Keys → Create key.
+`NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY` are required by both browser and server Supabase clients.
 
-### 3. Run locally
+## Local Development
 
 ```bash
+npm install
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000).
+App runs at `http://localhost:3000`.
 
----
+## Scripts
 
-## Project Structure
+- `npm run dev` - start development server
+- `npm run build` - production build
+- `npm run start` - run production server
+- `npm run lint` - run ESLint
+- `npm run postinstall` - apply dependency patches via `patch-package`
 
+## Project Layout
+
+```text
+proxy.ts
+app/
+    api/
+        chat/route.ts
+        recommend-program/route.ts
+    auth/
+        signin/page.tsx
+        signup/page.tsx
+    profile/page.tsx
+    onboarding/page.tsx
+    program/page.tsx
+    log/page.tsx
+    progress/page.tsx
+components/
+    AppIcons.tsx
+    Nav.tsx
+    log/
+        RestTimer.tsx
+hooks/
+lib/
+    program-days.ts
+    supabase/
+    workout-data.ts
+    types.ts
+public/
+    manifest.json
+patches/
+    groq-sdk+1.2.0.patch
 ```
-workout-app/
-├── app/
-│   ├── layout.tsx          # Root layout, fonts, Nav
-│   ├── page.tsx            # Home — today's workout + weekly strip
-│   ├── log/page.tsx        # Log workout — date picker, exercise cards
-│   ├── progress/page.tsx   # Progress — calendar, history, personal bests
-│   ├── chat/page.tsx       # AI assistant chat
-│   └── api/chat/route.ts   # Groq API route
-├── components/
-│   ├── Nav.tsx             # Bottom navigation bar
-│   ├── WorkoutIcon.tsx     # SVG icons for each workout type
-│   ├── AppIcons.tsx        # Shared inline SVG icons
-│   ├── log/
-│   │   ├── ExerciseCard.tsx
-│   │   ├── SetRow.tsx
-│   │   ├── AddExerciseForm.tsx
-│   │   └── DayOverridePicker.tsx
-│   └── ToasterProvider.tsx
-├── hooks/
-│   └── useWorkoutLog.ts    # Streak, PBs, week number, CRUD
-├── lib/
-│   ├── workout-data.ts     # All exercise data + localStorage helpers
-│   ├── dates.ts            # PH timezone date helpers
-│   └── buildLogContext.ts  # Builds AI-readable log summary
-├── public/
-│   ├── manifest.json       # PWA manifest
-│   └── icons/              # icon-192.png, icon-512.png
-└── types/
-    └── types.ts
-```
 
----
+## Authentication Notes
 
-## Future Improvements
+- If Supabase email confirmation is enabled, signup may create the account without creating an active session yet.
+- In that flow, the app routes users to sign-in with a verification prompt.
+- A temporary local payload (`pending_signup_profile`) is used to finish profile setup after first successful sign-in.
+- Profile page sign-out uses `supabase.auth.signOut()` and redirects to `/auth/signin`.
 
-- **Supabase** — swap localStorage for cloud sync + auth (multi-device, data backup)
-- **Progress charts** — weight lifted over time per exercise using Recharts
-- **Rest timer** — countdown between sets
-- **Notification reminders** — "Time to train" push notifications via service worker
-- **Export** — download logs as CSV or PDF
+## Architecture Notes
 
----
+- Program templates and workout logs are intentionally separate concerns:
+    - `program_days` + `program_exercises` define what a user should train.
+    - `workout_logs` + `exercise_logs` + `set_entries` store what the user actually completed.
+- Home (`/`) and Log (`/log`) read per-user program templates from Supabase, then fallback to `WORKOUT_PLAN` only when user data is unavailable.
+- Shared program-day mapping logic lives in `lib/program-days.ts`:
+    - `fetchUserProgramByDay()` fetches and normalizes `program_days` for UI use.
+    - `createExerciseLogsFromWorkoutDay()` builds default `ExerciseLog[]` from a selected day template.
+- Log persistence is handled separately in `lib/workout-data.ts`, which keeps compatibility wrappers (`savelog`, `getLogs`, etc.) while syncing to Supabase.
+- When updating program behavior, prefer changing `lib/program-days.ts` first so Home and Log stay aligned.
+- Request gating and auth/onboarding redirects run through `proxy.ts` (Next.js 16 convention), replacing the old `middleware.ts` convention.
 
-## Notes
+## Troubleshooting
 
-- All dates use **Asia/Manila (UTC+8)** timezone — the app will always show the correct PH date and day
-- Workout logs are stored in `localStorage` under the key `workout_logs_v2`
-- The AI has guardrails: fitness and nutrition topics only, 20-message session limit, 1000-character input limit, prompt injection detection
-- The AI reads your actual logged data (today's session + last 6 sessions + personal bests) on every chat request
+- `over_email_send_rate_limit`: wait a few minutes before retrying signup.
+- `favicon.ico 404`: add a favicon file under `public/` if needed (non-blocking).
+- TypeScript deprecation warning in Groq package is handled by the committed patch and auto-applied on install.
+- If you recently migrated from `middleware.ts` to `proxy.ts` and dev still references middleware, stop old `next dev` processes, clear `.next/`, and restart dev.
+
+## Maintenance
+
+- Keep shared UI icons in `components/AppIcons.tsx`.
+- Prefer shared types in `lib/types.ts` and `lib/workout-data.ts` over duplicating interfaces in feature pages.
