@@ -1,11 +1,14 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import type { Exercise, ExerciseLog, SetEntry } from "@/lib/workout-data"
-import { buildYoutubeUrl } from "@/lib/workout-data"
+import { buildYoutubeUrl, getLogs } from "@/lib/workout-data"
+import { formatPerformance, getExercisePerformanceContext } from "@/lib/log-insights"
+import { trackTelemetryEvent } from "@/lib/telemetry"
 import {
   IcoCheck,
   IcoChevron,
+  IcoClock,
   IcoEdit,
   IcoInfo,
   IcoPlus,
@@ -32,12 +35,14 @@ function toSearchQuery(text: string): string {
 export function ExerciseCard({
   exercise,
   log,
+  logId,
   defaultOpen,
   onUpdate,
   onRemove,
 }: {
   exercise: Exercise | null
   log: ExerciseLog
+  logId?: string
   defaultOpen: boolean
   onUpdate: (updated: ExerciseLog) => void
   onRemove: () => void
@@ -47,8 +52,10 @@ export function ExerciseCard({
   const [nameVal, setNameVal] = useState(log.exerciseName)
   const [restDuration, setRestDuration] = useState(90)
   const [restAutoStartToken, setRestAutoStartToken] = useState(0)
+  const [showRestTimer, setShowRestTimer] = useState(false)
   const [editingYoutube, setEditingYoutube] = useState(false)
   const [youtubeVal, setYoutubeVal] = useState(log.youtubeUrl ?? "")
+  const viewedContextRef = useRef(false)
 
   const isTimed: boolean = log.isTimed !== undefined ? log.isTimed : !!(exercise?.duration && !exercise?.reps)
 
@@ -62,6 +69,23 @@ export function ExerciseCard({
   const fallbackSearch = toSearchQuery(exercise?.youtubeSearch ?? "workout exercise form tutorial")
   const youtubeHref = manualYoutubeUrl
     ?? buildYoutubeUrl(nameSearch ? `${nameSearch}+tutorial+form+how+to` : fallbackSearch)
+
+  const performanceContext = getExercisePerformanceContext(getLogs(), log, logId)
+  const latestHint = formatPerformance(performanceContext.latest)
+  const bestHint = formatPerformance(performanceContext.previousBest)
+
+  useEffect(() => {
+    if (!open || viewedContextRef.current) return
+    if (!performanceContext.latest && !performanceContext.previousBest) return
+
+    trackTelemetryEvent("pr_viewed", {
+      exercise_id: log.exerciseId,
+      exercise_name: log.exerciseName,
+      latest: latestHint,
+      previous_best: bestHint,
+    })
+    viewedContextRef.current = true
+  }, [bestHint, latestHint, log.exerciseId, log.exerciseName, open, performanceContext.latest, performanceContext.previousBest])
 
   function updateSet(i: number, updated: SetEntry) {
     const sets = [...log.sets]
@@ -220,6 +244,31 @@ export function ExerciseCard({
           <button
             onClick={(e) => {
               e.stopPropagation()
+              setShowRestTimer((prev) => !prev)
+            }}
+            title={showRestTimer ? "Hide rest timer" : "Show rest timer"}
+            aria-label={showRestTimer ? "Hide rest timer" : "Show rest timer"}
+            style={{
+              background: showRestTimer ? "var(--accent-dim)" : "none",
+              border: `0.5px solid ${showRestTimer ? "var(--accent-border)" : "var(--border-default)"}`,
+              borderRadius: 20,
+              cursor: "pointer",
+              color: showRestTimer ? "var(--accent)" : "var(--text-muted)",
+              padding: "4px 9px",
+              display: "flex",
+              alignItems: "center",
+              gap: 4,
+              fontSize: 10,
+              fontWeight: 500,
+              fontFamily: "inherit",
+            }}
+          >
+            <IcoClock />
+            Rest
+          </button>
+          <button
+            onClick={(e) => {
+              e.stopPropagation()
               setEditingYoutube((v) => !v)
             }}
             title="Edit YouTube URL"
@@ -296,6 +345,23 @@ export function ExerciseCard({
               <p style={{ fontSize: 12, color: "var(--text-secondary)", lineHeight: 1.6 }}>{exercise!.tip}</p>
             </div>
           )}
+
+          <div
+            style={{
+              background: "var(--bg-elevated)",
+              border: "0.5px solid var(--border-subtle)",
+              borderRadius: "var(--radius-sm)",
+              padding: "8px 10px",
+              marginBottom: 10,
+            }}
+          >
+            <p style={{ fontSize: 10, color: "var(--text-muted)", marginBottom: 2, textTransform: "uppercase", letterSpacing: "0.08em" }}>
+              Progress Context
+            </p>
+            <p style={{ fontSize: 12, color: "var(--text-secondary)" }}>
+              Latest: <span style={{ color: "var(--text-primary)", fontWeight: 500 }}>{latestHint}</span> · Best: <span style={{ color: "var(--text-primary)", fontWeight: 500 }}>{bestHint}</span>
+            </p>
+          </div>
 
           {editingYoutube && (
             <div
@@ -376,6 +442,8 @@ export function ExerciseCard({
                 set={set}
                 index={i}
                 isTimed={isTimed}
+                latestHint={latestHint}
+                bestHint={bestHint}
                 canDelete={log.sets.length > 1}
                 onChange={(u) => updateSet(i, u)}
                 onSetCompleted={handleSetCompleted}
@@ -384,11 +452,16 @@ export function ExerciseCard({
             ))}
           </div>
 
-          <RestTimer
-            durationSeconds={restDuration}
-            onDurationChange={setRestDuration}
-            autoStartToken={restAutoStartToken}
-          />
+          {showRestTimer && (
+            <div data-testid="rest-timer-panel" style={{ marginTop: 8 }}>
+              <RestTimer
+                durationSeconds={restDuration}
+                onDurationChange={setRestDuration}
+                autoStartToken={restAutoStartToken}
+                compact
+              />
+            </div>
+          )}
 
           <button
             onClick={addSet}

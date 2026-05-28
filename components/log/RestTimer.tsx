@@ -6,6 +6,7 @@ type RestTimerProps = {
   durationSeconds: number
   onDurationChange: (seconds: number) => void
   autoStartToken: number
+  compact?: boolean
 }
 
 function formatTime(totalSeconds: number): string {
@@ -50,7 +51,7 @@ function playAlertBeep() {
   }
 }
 
-export function RestTimer({ durationSeconds, onDurationChange, autoStartToken }: RestTimerProps) {
+export function RestTimer({ durationSeconds, onDurationChange, autoStartToken, compact = false }: RestTimerProps) {
   const [remaining, setRemaining] = useState(durationSeconds)
   const [running, setRunning] = useState(false)
   const prevAutoStartRef = useRef(autoStartToken)
@@ -102,11 +103,11 @@ export function RestTimer({ durationSeconds, onDurationChange, autoStartToken }:
   return (
     <div
       style={{
-        marginTop: 12,
+        marginTop: compact ? 0 : 12,
         background: "var(--bg-elevated)",
         border: "0.5px solid var(--border-subtle)",
         borderRadius: "var(--radius-md)",
-        padding: "10px 12px",
+        padding: compact ? "8px 10px" : "10px 12px",
       }}
     >
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
@@ -167,7 +168,7 @@ export function RestTimer({ durationSeconds, onDurationChange, autoStartToken }:
         </div>
       </div>
 
-      <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: compact ? 10 : 14 }}>
         <div style={{ position: "relative", width: 68, height: 68, flexShrink: 0 }}>
           <svg width="68" height="68" viewBox="0 0 68 68" style={{ transform: "rotate(-90deg)" }}>
             <circle cx="34" cy="34" r={radius} stroke="var(--border-default)" strokeWidth={stroke} fill="none" />

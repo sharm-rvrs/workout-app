@@ -1,6 +1,7 @@
 "use client"
 
 import { Suspense, useEffect, useState } from "react"
+import Link from "next/link"
 import { useSearchParams } from "next/navigation"
 import confetti from "canvas-confetti"
 import toast from "react-hot-toast"
@@ -21,6 +22,9 @@ import { AddExerciseForm } from "@/components/log/AddExerciseForm"
 import { DayOverridePicker } from "@/components/log/DayOverridePicker"
 import { ExerciseCard } from "@/components/log/ExerciseCard"
 import { createExerciseLogsFromWorkoutDay, fetchUserProgramByDay } from "@/lib/program-days"
+import { getRecentExerciseTemplates, type RecentExerciseTemplate } from "@/lib/log-insights"
+import { RecentExercisesPicker } from "@/components/log/RecentExercisesPicker"
+import { trackTelemetryEvent } from "@/lib/telemetry"
 
 function getMaxWeightForExercise(ex: ExerciseLog): number {
   let max = 0
@@ -44,6 +48,9 @@ function LogPageInner() {
   const [showAddForm, setShowAddForm] = useState(false)
   const [programByDay, setProgramByDay] = useState<Partial<Record<DayKey, WorkoutDay>>>({})
   const [programLoading, setProgramLoading] = useState(true)
+  const [prefillRecent, setPrefillRecent] = useState<RecentExerciseTemplate | null>(null)
+  const [hasSentLogStarted, setHasSentLogStarted] = useState(false)
+  const recentExercises = getRecentExerciseTemplates(getLogs())
 
   useEffect(() => {
     let cancelled = false
@@ -70,18 +77,21 @@ function LogPageInner() {
 
     const existing = getLogByDate(date)
     if (existing) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      setLogId(existing.id)
-      setEffectiveDayKey(existing.dayOverride ?? existing.dayKey)
-      setSkippedIds(new Set(existing.skippedExerciseIds ?? []))
-      setExerciseLogs(existing.exercises)
+      queueMicrotask(() => {
+        setLogId(existing.id)
+        setEffectiveDayKey(existing.dayOverride ?? existing.dayKey)
+        setSkippedIds(new Set(existing.skippedExerciseIds ?? []))
+        setExerciseLogs(existing.exercises)
+      })
     } else {
       const key = getDayKeyFromStr(date)
-      setLogId(crypto.randomUUID())
-      setEffectiveDayKey(key)
-      setSkippedIds(new Set())
       const day = programByDay[key] ?? WORKOUT_PLAN[key]
-      setExerciseLogs(createExerciseLogsFromWorkoutDay(day))
+      queueMicrotask(() => {
+        setLogId(crypto.randomUUID())
+        setEffectiveDayKey(key)
+        setSkippedIds(new Set())
+        setExerciseLogs(createExerciseLogsFromWorkoutDay(day))
+      })
     }
   }, [date, programLoading, programByDay])
 
@@ -98,6 +108,11 @@ function LogPageInner() {
     setExerciseLogs([...defaultLogs, ...customLogs])
   }
 
+  function handleDateChange(nextDate: string) {
+    setDate(nextDate)
+    setHasSentLogStarted(false)
+  }
+
   function removeExercise(exerciseId: string, isCustom: boolean) {
     if (isCustom) {
       setExerciseLogs((prev) => prev.filter((e) => e.exerciseId !== exerciseId))
@@ -108,7 +123,29 @@ function LogPageInner() {
   }
 
   function updateExerciseLog(exerciseId: string, updated: ExerciseLog) {
+    if (!hasSentLogStarted) {
+      trackTelemetryEvent("log_started", {
+        date,
+        day_key: effectiveDayKey,
+        source: "set_update",
+      })
+      setHasSentLogStarted(true)
+    }
     setExerciseLogs((prev) => prev.map((e) => (e.exerciseId === exerciseId ? updated : e)))
+  }
+
+  function handleRecentPicked(recent: RecentExerciseTemplate) {
+    if (!hasSentLogStarted) {
+      trackTelemetryEvent("log_started", {
+        date,
+        day_key: effectiveDayKey,
+        source: "recent_picker",
+      })
+      setHasSentLogStarted(true)
+    }
+
+    setPrefillRecent(recent)
+    setShowAddForm(true)
   }
 
   function handleSave() {
@@ -134,6 +171,13 @@ function LogPageInner() {
         skippedExerciseIds: Array.from(skippedIds),
         exercises: exerciseLogs,
         completedAt: new Date().toISOString(),
+      })
+
+      trackTelemetryEvent("log_saved", {
+        date,
+        day_key: dayKey,
+        effective_day_key: effectiveDayKey,
+        exercise_count: exerciseLogs.length,
       })
 
       toast.success("Workout saved!")
@@ -166,6 +210,7 @@ function LogPageInner() {
   const workout = programByDay[effectiveDayKey] ?? WORKOUT_PLAN[effectiveDayKey]
   const isRestDay = workout.icon === "rest"
   const isOverridden = effectiveDayKey !== getDayKeyFromStr(date)
+  const hasAnyLogs = getLogs().length > 0
 
   return (
     <div style={{ paddingTop: 24, paddingBottom: 8 }}>
@@ -189,7 +234,7 @@ function LogPageInner() {
             type="date"
             value={date}
             max={todayStrPH()}
-            onChange={(e) => setDate(e.target.value)}
+            onChange={(e) => handleDateChange(e.target.value)}
             style={{
               flex: 1,
               background: "none",
@@ -258,6 +303,53 @@ function LogPageInner() {
         )}
       </div>
 
+      {!hasAnyLogs && (
+        <div
+          style={{
+            background: "var(--bg-surface)",
+            border: "0.5px solid var(--border-subtle)",
+            borderRadius: "var(--radius-lg)",
+            padding: "14px",
+            marginBottom: 16,
+          }}
+        >
+          <p style={{ fontSize: 13, fontWeight: 500, color: "var(--text-primary)", marginBottom: 6 }}>
+            First workout checklist
+          </p>
+          <p style={{ fontSize: 12, color: "var(--text-secondary)", lineHeight: 1.6, marginBottom: 10 }}>
+            Pick today&apos;s session, log at least one set, then save. You can also finish onboarding or review your program first.
+          </p>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <Link
+              href="/onboarding"
+              style={{
+                textDecoration: "none",
+                fontSize: 12,
+                color: "var(--text-secondary)",
+                border: "0.5px solid var(--border-default)",
+                borderRadius: 20,
+                padding: "6px 10px",
+              }}
+            >
+              Finish onboarding
+            </Link>
+            <Link
+              href="/program"
+              style={{
+                textDecoration: "none",
+                fontSize: 12,
+                color: "var(--text-secondary)",
+                border: "0.5px solid var(--border-default)",
+                borderRadius: 20,
+                padding: "6px 10px",
+              }}
+            >
+              Review program
+            </Link>
+          </div>
+        </div>
+      )}
+
       {isRestDay ? (
         <div
           style={{
@@ -302,6 +394,7 @@ function LogPageInner() {
                   key={exLog.exerciseId}
                   exercise={template}
                   log={exLog}
+                  logId={logId}
                   defaultOpen={i === 0}
                   onUpdate={(updated) => updateExerciseLog(exLog.exerciseId, updated)}
                   onRemove={() => removeExercise(exLog.exerciseId, !!exLog.isCustom)}
@@ -309,13 +402,36 @@ function LogPageInner() {
               )
             })}
 
+            {!showAddForm && (
+              <RecentExercisesPicker
+                recentExercises={recentExercises}
+                onSelect={handleRecentPicked}
+                title="Recent exercises"
+              />
+            )}
+
             {showAddForm ? (
               <AddExerciseForm
                 onAdd={(ex) => {
+                  if (!hasSentLogStarted) {
+                    trackTelemetryEvent("log_started", {
+                      date,
+                      day_key: effectiveDayKey,
+                      source: "add_exercise",
+                    })
+                    setHasSentLogStarted(true)
+                  }
                   setExerciseLogs((prev) => [...prev, ex])
+                  setPrefillRecent(null)
                   setShowAddForm(false)
                 }}
-                onCancel={() => setShowAddForm(false)}
+                key={prefillRecent?.key ?? "custom-form"}
+                recentExercises={recentExercises}
+                initialRecent={prefillRecent}
+                onCancel={() => {
+                  setPrefillRecent(null)
+                  setShowAddForm(false)
+                }}
               />
             ) : (
               <button

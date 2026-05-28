@@ -1,4 +1,11 @@
 import { createClient } from "@/lib/supabase/client"
+import {
+  EXERCISE_CATEGORY_LABELS,
+  EXERCISE_CATEGORY_META,
+  WORKOUT_EXERCISE_CATALOG,
+  type ExerciseCatalogItem,
+  type ExerciseCategory,
+} from "@/lib/workout-catalog"
 
 export type WorkoutIconKey =
   | "push"
@@ -471,6 +478,124 @@ export function buildYoutubeUrl(search: string): string {
   return `https://www.youtube.com/results?search_query=${search}`
 }
 
+export { EXERCISE_CATEGORY_META }
+export { EXERCISE_CATEGORY_LABELS }
+export type { ExerciseCatalogItem, ExerciseCategory }
+
+function normalizeExerciseText(text: string): string {
+  return text.trim().toLowerCase()
+}
+
+function parseDefaultNumber(defaultValue: string): number | undefined {
+  const found = defaultValue.match(/\d+/)
+  if (!found) return undefined
+  const parsed = Number(found[0])
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined
+}
+
+function rankCatalogItem(item: ExerciseCatalogItem, query: string): number {
+  const name = normalizeExerciseText(item.name)
+  if (name === query) return 100
+  if (name.startsWith(query)) return 80
+  if (name.includes(query)) return 60
+
+  const aliasIndex = item.aliases.findIndex((alias) => normalizeExerciseText(alias).includes(query))
+  if (aliasIndex >= 0) {
+    const alias = normalizeExerciseText(item.aliases[aliasIndex])
+    if (alias === query) return 55
+    if (alias.startsWith(query)) return 50
+    return 40
+  }
+
+  return 0
+}
+
+export function getExercisesByCategory(category: ExerciseCategory): ExerciseCatalogItem[] {
+  return WORKOUT_EXERCISE_CATALOG.filter((item) => item.category === category)
+}
+
+export function searchExercises(query: string, category?: ExerciseCategory): ExerciseCatalogItem[] {
+  const normalized = normalizeExerciseText(query)
+  if (!normalized) {
+    return category ? getExercisesByCategory(category) : WORKOUT_EXERCISE_CATALOG
+  }
+
+  return WORKOUT_EXERCISE_CATALOG
+    .filter((item) => {
+      if (category && item.category !== category) return false
+      const haystack = `${item.name} ${item.aliases.join(" ")}`.toLowerCase()
+      return haystack.includes(normalized)
+    })
+    .sort((a, b) => rankCatalogItem(b, normalized) - rankCatalogItem(a, normalized))
+}
+
+export function toExerciseLogFromCatalog(item: ExerciseCatalogItem): ExerciseLog {
+  const defaultNumber = parseDefaultNumber(item.defaultRepsOrDuration)
+  const sets = Array.from({ length: Math.max(1, item.defaultSets) }, (_, index) => ({
+    setNumber: index + 1,
+    reps: item.isTimed ? undefined : defaultNumber,
+    durationSeconds: item.isTimed ? defaultNumber : undefined,
+    weightKg: undefined,
+  }))
+
+  return {
+    exerciseId: item.id,
+    exerciseName: item.name,
+    isCustom: false,
+    isTimed: item.isTimed,
+    sets,
+    notes: "",
+  }
+}
+
+export function getQuickAddExercises(limit = 8, category?: ExerciseCategory): ExerciseCatalogItem[] {
+  const logs = getLogs()
+  const seen = new Set<string>()
+  const quickAdd: ExerciseCatalogItem[] = []
+
+  for (const log of logs) {
+    for (const exercise of log.exercises) {
+      const match = WORKOUT_EXERCISE_CATALOG.find(
+        (item) =>
+          normalizeExerciseText(item.name) === normalizeExerciseText(exercise.exerciseName) ||
+          item.id === exercise.exerciseId
+      )
+      if (!match) continue
+      if (category && match.category !== category) continue
+      if (seen.has(match.id)) continue
+      quickAdd.push(match)
+      seen.add(match.id)
+      if (quickAdd.length >= limit) return quickAdd
+    }
+  }
+
+  const frequencyMap = new Map<string, number>()
+  for (const log of logs) {
+    for (const exercise of log.exercises) {
+      const normalized = normalizeExerciseText(exercise.exerciseName)
+      if (!normalized) continue
+      frequencyMap.set(normalized, (frequencyMap.get(normalized) ?? 0) + 1)
+    }
+  }
+
+  const byFrequency = WORKOUT_EXERCISE_CATALOG
+    .filter((item) => !category || item.category === category)
+    .map((item) => ({
+      item,
+      score: frequencyMap.get(normalizeExerciseText(item.name)) ?? 0,
+    }))
+    .sort((a, b) => b.score - a.score)
+
+  for (const entry of byFrequency) {
+    if (seen.has(entry.item.id)) continue
+    quickAdd.push(entry.item)
+    seen.add(entry.item.id)
+    if (quickAdd.length >= limit) break
+  }
+
+  return quickAdd
+}
+
 const STORAGE_KEY = "workout_logs_v2"
 
 type SetEntryRow = {
@@ -508,20 +633,103 @@ let hydrated = false
 let hydratingPromise: Promise<WorkoutLog[]> | null = null
 let workoutLogsSupportsProgramColumns: boolean | null = null
 let workoutDetailsSyncSupported: boolean | null = null
+let cachedUserId: string | null = null
 
 function emitLogsUpdated() {
   if (typeof window === "undefined") return
   window.dispatchEvent(new Event("workout-logs-updated"))
 }
 
+function normalizeSyncErrorForLog(error: unknown): unknown {
+  try {
+    if (error instanceof Error) {
+      return {
+        name: error.name,
+        message: error.message,
+        stack: error.stack,
+      }
+    }
+
+    if (error && typeof error === "object") {
+      const source = error as Record<string, unknown>
+      const normalized: Record<string, unknown> = {}
+
+      const supabaseFields = ["code", "message", "details", "hint", "status"] as const
+      for (const field of supabaseFields) {
+        if (field in source) {
+          normalized[field] = source[field]
+        }
+      }
+
+      const ownPropertySnapshot: Record<string, unknown> = {}
+      for (const name of Object.getOwnPropertyNames(error)) {
+        try {
+          ownPropertySnapshot[name] = source[name]
+        } catch {
+          ownPropertySnapshot[name] = "[unreadable property]"
+        }
+      }
+
+      normalized.ownProperties = ownPropertySnapshot
+      return normalized
+    }
+
+    return String(error)
+  } catch {
+    return "[unable to normalize error]"
+  }
+}
+
 function reportSyncError(scope: string, error: unknown) {
-  console.error(`[workout-log-sync:${scope}]`, error)
+  console.error(`[workout-log-sync:${scope}]`, normalizeSyncErrorForLog(error))
 }
 
 function isMissingColumnError(error: unknown): boolean {
   if (!error || typeof error !== "object") return false
   const maybeCode = (error as { code?: unknown }).code
-  return maybeCode === "PGRST204"
+  if (maybeCode === "PGRST204" || maybeCode === "42703") {
+    return true
+  }
+
+  const maybeMessage = String((error as { message?: unknown }).message ?? "").toLowerCase()
+  return (
+    maybeMessage.includes("column") &&
+    (maybeMessage.includes("does not exist") || maybeMessage.includes("could not find"))
+  )
+}
+
+function isMissingProfileForeignKeyError(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false
+
+  const maybeCode = String((error as { code?: unknown }).code ?? "")
+  if (maybeCode !== "23503") return false
+
+  const message = String((error as { message?: unknown }).message ?? "").toLowerCase()
+  const details = String((error as { details?: unknown }).details ?? "").toLowerCase()
+  const combined = `${message} ${details}`
+
+  return combined.includes("profiles") || combined.includes("workout_logs_user_id_fkey")
+}
+
+async function ensureProfileRowExists(
+  supabase: ReturnType<typeof createClient>,
+  userId: string
+): Promise<boolean> {
+  try {
+    const { error } = await supabase
+      .from("profiles")
+      .upsert({ id: userId }, { onConflict: "id", ignoreDuplicates: true })
+
+    if (error) {
+      reportSyncError("profile-bootstrap", error)
+      return false
+    }
+
+    return true
+  } catch (error) {
+    reportSyncError("profile-bootstrap", error)
+    return false
+  }
 }
 
 function normalizeLogs(logs: WorkoutLog[]): WorkoutLog[] {
@@ -569,19 +777,32 @@ function mapRowToLog(row: WorkoutLogRow): WorkoutLog {
   }
 }
 
-function persistCacheToLocalStorage() {
+function getStorageKeyForUser(userId: string | null): string {
+  return userId ? `${STORAGE_KEY}:${userId}` : `${STORAGE_KEY}:anon`
+}
+
+function persistCacheToLocalStorage(userId?: string | null) {
   if (typeof window === "undefined") return
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(logsCache))
+    const resolvedUserId = userId ?? cachedUserId
+    if (!resolvedUserId) return
+    const storageKey = getStorageKeyForUser(resolvedUserId)
+    localStorage.setItem(storageKey, JSON.stringify(logsCache))
   } catch {
     // Ignore local cache persistence failures.
   }
 }
 
-function loadLocalCache() {
+function loadLocalCache(userId?: string | null) {
   if (typeof window === "undefined") return
   try {
-    const raw = localStorage.getItem(STORAGE_KEY)
+    const resolvedUserId = userId ?? cachedUserId
+    if (!resolvedUserId) {
+      logsCache = []
+      return
+    }
+    const storageKey = getStorageKeyForUser(resolvedUserId)
+    const raw = localStorage.getItem(storageKey)
     if (!raw) return
     const parsed = JSON.parse(raw) as WorkoutLog[]
     logsCache = normalizeLogs(parsed)
@@ -592,15 +813,26 @@ function loadLocalCache() {
 
 async function hydrateLogsFromSupabase(force = false): Promise<WorkoutLog[]> {
   if (typeof window === "undefined") return []
-  if (hydrated && !force) return logsCache
   if (hydratingPromise && !force) return hydratingPromise
 
   hydratingPromise = (async () => {
     try {
       const supabase = createClient()
       const { data: userData, error: userError } = await supabase.auth.getUser()
-      if (userError || !userData.user) {
+      const currentUserId = userError || !userData.user ? null : userData.user.id
+
+      if (cachedUserId !== currentUserId) {
+        logsCache = []
+        hydrated = false
+        cachedUserId = currentUserId
+        loadLocalCache(currentUserId)
+      }
+
+      if (hydrated && !force) return logsCache
+
+      if (!currentUserId) {
         hydrated = true
+        persistCacheToLocalStorage(currentUserId)
         return logsCache
       }
 
@@ -631,14 +863,14 @@ async function hydrateLogsFromSupabase(force = false): Promise<WorkoutLog[]> {
             )
           )
         `)
-        .eq("user_id", userData.user.id)
+        .eq("user_id", currentUserId)
         .order("date", { ascending: false })
 
       if (error) throw error
 
       logsCache = normalizeLogs(((data ?? []) as WorkoutLogRow[]).map(mapRowToLog))
       hydrated = true
-      persistCacheToLocalStorage()
+      persistCacheToLocalStorage(currentUserId)
       emitLogsUpdated()
       return logsCache
     } catch {
@@ -656,9 +888,15 @@ async function saveLogToSupabase(log: WorkoutLog): Promise<void> {
   if (typeof window === "undefined") return
   const supabase = createClient()
   const { data: userData, error: userError } = await supabase.auth.getUser()
-  if (userError || !userData.user) return
+  if (userError || !userData.user) {
+    cachedUserId = null
+    persistCacheToLocalStorage(cachedUserId)
+    return
+  }
 
   const userId = userData.user.id
+  cachedUserId = userId
+  persistCacheToLocalStorage(userId)
 
   const upsertWithProgramColumns = async () => {
     return supabase.from("workout_logs").upsert({
@@ -681,15 +919,34 @@ async function saveLogToSupabase(log: WorkoutLog): Promise<void> {
     })
   }
 
+  const upsertParentWithProfileRecovery = async (
+    upsertFn: () => Promise<{ error: unknown }>
+  ): Promise<unknown | null> => {
+    const { error: firstError } = await upsertFn()
+    if (!firstError) return null
+
+    if (!isMissingProfileForeignKeyError(firstError)) {
+      return firstError
+    }
+
+    const ensured = await ensureProfileRowExists(supabase, userId)
+    if (!ensured) {
+      return firstError
+    }
+
+    const { error: retryError } = await upsertFn()
+    return retryError ?? null
+  }
+
   if (workoutLogsSupportsProgramColumns === false) {
-    const { error: legacyError } = await upsertLegacyColumns()
+    const legacyError = await upsertParentWithProfileRecovery(upsertLegacyColumns)
     if (legacyError) throw legacyError
   } else {
-    const { error: upsertError } = await upsertWithProgramColumns()
+    const upsertError = await upsertParentWithProfileRecovery(upsertWithProgramColumns)
     if (upsertError) {
       if (isMissingColumnError(upsertError)) {
         workoutLogsSupportsProgramColumns = false
-        const { error: legacyError } = await upsertLegacyColumns()
+        const legacyError = await upsertParentWithProfileRecovery(upsertLegacyColumns)
         if (legacyError) throw legacyError
       } else {
         throw upsertError
@@ -783,7 +1040,7 @@ async function deleteLogFromSupabase(id: string): Promise<void> {
 
 // Keep signature unchanged for legacy callers.
 export function savelog(log: WorkoutLog): void {
-  if (!hydrated) loadLocalCache()
+  if (!hydrated) loadLocalCache(cachedUserId)
 
   const existing = [...logsCache]
   const idx = existing.findIndex((l) => l.date === log.date && l.dayKey === log.dayKey)
@@ -794,8 +1051,21 @@ export function savelog(log: WorkoutLog): void {
   }
 
   logsCache = normalizeLogs(existing)
-  persistCacheToLocalStorage()
+  persistCacheToLocalStorage(cachedUserId)
   emitLogsUpdated()
+
+  void createClient()
+    .auth
+    .getUser()
+    .then(({ data, error }) => {
+      if (error) return
+      const resolvedUserId = data.user?.id ?? null
+      cachedUserId = resolvedUserId
+      persistCacheToLocalStorage(resolvedUserId)
+    })
+    .catch(() => {
+      // Ignore async auth resolution failures for optimistic local updates.
+    })
 
   void saveLogToSupabase(log).catch((error) => {
     reportSyncError("save", error)
@@ -806,9 +1076,9 @@ export function savelog(log: WorkoutLog): void {
 export function getLogs(): WorkoutLog[] {
   if (typeof window === "undefined") return []
   if (!hydrated) {
-    loadLocalCache()
-    void hydrateLogsFromSupabase()
+    loadLocalCache(cachedUserId)
   }
+  void hydrateLogsFromSupabase()
   return logsCache
 }
 
@@ -819,9 +1089,9 @@ export function getLogByDate(date: string): WorkoutLog | undefined {
 
 // Keep signature unchanged for legacy callers.
 export function deleteLog(id: string): void {
-  if (!hydrated) loadLocalCache()
+  if (!hydrated) loadLocalCache(cachedUserId)
   logsCache = logsCache.filter((l) => l.id !== id)
-  persistCacheToLocalStorage()
+  persistCacheToLocalStorage(cachedUserId)
   emitLogsUpdated()
 
   void deleteLogFromSupabase(id).catch((error) => {
@@ -831,7 +1101,7 @@ export function deleteLog(id: string): void {
 
 // Async helpers for new async-aware hooks.
 export async function getLogsAsync(force = false): Promise<WorkoutLog[]> {
-  if (!hydrated) loadLocalCache()
+  if (!hydrated) loadLocalCache(cachedUserId)
   return hydrateLogsFromSupabase(force)
 }
 

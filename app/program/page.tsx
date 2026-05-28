@@ -1,8 +1,16 @@
 "use client"
 
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect, useCallback, useMemo } from "react"
 import { createClient } from "@/lib/supabase/client"
 import type { DayKey } from "@/lib/workout-data"
+import {
+  EXERCISE_CATEGORY_LABELS,
+  EXERCISE_CATEGORY_META,
+  getExercisesByCategory,
+  searchExercises,
+  type ExerciseCategory,
+  type ExerciseCatalogItem,
+} from "@/lib/workout-data"
 import {
   IcoChevron,
   IcoEdit,
@@ -14,6 +22,7 @@ import {
   IcoTrash,
   IcoYoutube,
 } from "@/components/AppIcons"
+import { trackTelemetryEvent } from "@/lib/telemetry"
 
 // ─────────────────────────────────────────────
 //  Types
@@ -122,9 +131,82 @@ function ExerciseForm({
   isNew?: boolean
 }) {
   const [open, setOpen] = useState(!!isNew)
+  const [activeCatalogCategory, setActiveCatalogCategory] = useState<ExerciseCategory>("upper_body")
+  const [catalogSearch, setCatalogSearch] = useState("")
+  const [debouncedCatalogSearch, setDebouncedCatalogSearch] = useState("")
+
+  useEffect(() => {
+    const timeout = window.setTimeout(() => setDebouncedCatalogSearch(catalogSearch.trim()), 180)
+    return () => window.clearTimeout(timeout)
+  }, [catalogSearch])
+
+  useEffect(() => {
+    trackTelemetryEvent("catalog_category_viewed", {
+      source: "program_editor",
+      category: activeCatalogCategory,
+    })
+  }, [activeCatalogCategory])
 
   function u<K extends keyof ProgramExercise>(key: K, val: ProgramExercise[K]) {
     onChange({ ...exercise, [key]: val, _dirty: true })
+  }
+
+  const catalogResults = useMemo(
+    () =>
+      debouncedCatalogSearch
+        ? searchExercises(debouncedCatalogSearch, activeCatalogCategory)
+        : getExercisesByCategory(activeCatalogCategory),
+    [activeCatalogCategory, debouncedCatalogSearch]
+  )
+
+  useEffect(() => {
+    if (!debouncedCatalogSearch) return
+    trackTelemetryEvent("catalog_search_used", {
+      source: "program_editor",
+      category: activeCatalogCategory,
+      query: debouncedCatalogSearch,
+      result_count: catalogResults.length,
+    })
+  }, [activeCatalogCategory, catalogResults.length, debouncedCatalogSearch])
+
+  function resolveProgramCategoryId(item: ExerciseCatalogItem): string | null {
+    const expectedName = EXERCISE_CATEGORY_LABELS[item.category].toLowerCase()
+    const matched = categories.find((category) => {
+      const name = category.name.toLowerCase()
+      if (name === expectedName) return true
+      return name.includes(expectedName) || expectedName.includes(name)
+    })
+    return matched?.id ?? null
+  }
+
+  function applyCatalogExercise(item: ExerciseCatalogItem) {
+    const firstNumber = item.defaultRepsOrDuration.match(/\d+/)?.[0]
+    const nextReps = item.isTimed ? null : item.defaultRepsOrDuration
+    const nextDuration = item.isTimed ? item.defaultRepsOrDuration : null
+
+    onChange({
+      ...exercise,
+      name: item.name,
+      sets: item.defaultSets,
+      reps: nextReps,
+      duration_label: nextDuration,
+      is_timed: item.isTimed,
+      equipment: item.equipment,
+      youtube_url: exercise.youtube_url,
+      youtube_search: item.youtubeSearch,
+      category_id: resolveProgramCategoryId(item),
+      tip: exercise.tip,
+      _dirty: true,
+    })
+
+    trackTelemetryEvent("catalog_exercise_selected", {
+      source: "program_editor",
+      category: item.category,
+      exercise_id: item.id,
+      exercise_name: item.name,
+      via: debouncedCatalogSearch ? "search" : "category",
+      default_target: firstNumber ? Number(firstNumber) : undefined,
+    })
   }
 
   // Auto-generate youtube search from name if no URL provided
@@ -173,6 +255,82 @@ function ExerciseForm({
           <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
 
             {/* Name */}
+            <div>
+              <label style={LABEL}>Catalog</label>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 6 }}>
+                {EXERCISE_CATEGORY_META.map((category) => {
+                  const active = activeCatalogCategory === category.id
+                  return (
+                    <button
+                      key={category.id}
+                      type="button"
+                      onClick={() => setActiveCatalogCategory(category.id)}
+                      style={{
+                        background: active ? "var(--accent-dim)" : "var(--bg-surface)",
+                        border: `0.5px solid ${active ? "var(--accent-border)" : "var(--border-default)"}`,
+                        borderRadius: 20,
+                        color: active ? "var(--accent)" : "var(--text-secondary)",
+                        fontSize: 11,
+                        padding: "4px 8px",
+                        cursor: "pointer",
+                        fontFamily: "inherit",
+                      }}
+                    >
+                      {category.shortLabel}
+                    </button>
+                  )
+                })}
+              </div>
+              <input
+                style={INPUT}
+                placeholder="Search catalog"
+                value={catalogSearch}
+                onChange={(e) => setCatalogSearch(e.target.value)}
+              />
+              <div
+                style={{
+                  marginTop: 6,
+                  maxHeight: 120,
+                  overflowY: "auto",
+                  border: "0.5px solid var(--border-subtle)",
+                  borderRadius: "var(--radius-sm)",
+                  background: "var(--bg-surface)",
+                  padding: 6,
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: 4,
+                }}
+              >
+                {catalogResults.slice(0, 8).map((item) => (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() => applyCatalogExercise(item)}
+                    style={{
+                      textAlign: "left",
+                      border: "0.5px solid var(--border-default)",
+                      borderRadius: "var(--radius-sm)",
+                      background: "var(--bg-elevated)",
+                      color: "var(--text-primary)",
+                      fontSize: 11,
+                      padding: "6px 8px",
+                      cursor: "pointer",
+                      fontFamily: "inherit",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      gap: 8,
+                    }}
+                  >
+                    <span>{item.name}</span>
+                    <span style={{ color: "var(--text-muted)", whiteSpace: "nowrap" }}>
+                      {EXERCISE_CATEGORY_LABELS[item.category]}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </div>
+
             <div>
               <label style={LABEL}>Exercise name *</label>
               <input style={INPUT} placeholder="e.g. Smith Incline Press"
@@ -686,13 +844,6 @@ export default function ProgramPage() {
         }
       }
     }
-
-    // Mark program as confirmed if not already
-    await supabase
-      .from("profiles")
-      .update({ program_confirmed_at: new Date().toISOString() })
-      .eq("id", user.id)
-      .is("program_confirmed_at", null) // only if null
 
     setSaving(false)
 

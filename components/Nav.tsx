@@ -1,7 +1,7 @@
 "use client"
 
 import Link from "next/link"
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useState, useSyncExternalStore } from "react"
 import { usePathname } from "next/navigation"
 import { createClient } from "@/lib/supabase/client"
 
@@ -88,6 +88,18 @@ const NAV_ITEMS = [
 export default function Nav() {
   const pathname = usePathname()
   const [avatarLabel, setAvatarLabel] = useState("?")
+  const isEmbedded = useSyncExternalStore(
+    () => () => undefined,
+    () => {
+      try {
+        return window.self !== window.top
+      } catch {
+        // Cross-origin frame access can throw; treat it as embedded.
+        return true
+      }
+    },
+    () => false,
+  )
 
   useEffect(() => {
     let cancelled = false
@@ -137,8 +149,8 @@ export default function Nav() {
 
   const profileActive = useMemo(() => pathname.startsWith("/profile"), [pathname])
 
-  // Hide nav on auth + onboarding pages
-  if (HIDDEN_ON.some((route) => pathname.startsWith(route))) {
+  // Hide nav on auth + onboarding pages and embedded contexts.
+  if (isEmbedded || HIDDEN_ON.some((route) => pathname.startsWith(route))) {
     return null
   }
 

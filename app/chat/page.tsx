@@ -2,6 +2,7 @@
 
 import { useState, useRef, useEffect } from "react"
 import type { Message } from "@/lib/types"
+import { getLogs } from "@/lib/workout-data"
 import {
   IcoBot,
   IcoDatabase,
@@ -15,6 +16,9 @@ import {
 const MAX_CHARS    = 1000
 const MAX_MESSAGES = 20
 const WARN_AT      = 16
+const MAX_CLIENT_LOGS = 60
+const MAX_CLIENT_LOG_EXERCISES = 30
+const MAX_CLIENT_LOG_SETS = 12
 
 const SUGGESTIONS = [
   "What did I train today?",
@@ -105,11 +109,31 @@ export default function ChatPage() {
     if (inputRef.current) inputRef.current.style.height = "auto"
 
     try {
+      const clientLogs = getLogs()
+        .slice(-MAX_CLIENT_LOGS)
+        .map((log) => ({
+          id: log.id,
+          date: log.date,
+          completedAt: log.completedAt,
+          dayKey: log.dayKey,
+          dayOverride: log.dayOverride,
+          exercises: (log.exercises ?? []).slice(0, MAX_CLIENT_LOG_EXERCISES).map((exercise) => ({
+            exerciseId: exercise.exerciseId,
+            exerciseName: exercise.exerciseName,
+            sets: (exercise.sets ?? []).slice(0, MAX_CLIENT_LOG_SETS).map((set) => ({
+              weightKg: set.weightKg,
+              reps: set.reps,
+              durationSeconds: set.durationSeconds,
+            })),
+          })),
+        }))
+
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           messages: updated.map((m) => ({ role: m.role, content: m.content })),
+          clientLogs,
         }),
       })
 

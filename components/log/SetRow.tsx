@@ -9,6 +9,8 @@ export function SetRow({
   set,
   index,
   isTimed,
+  latestHint,
+  bestHint,
   onChange,
   onSetCompleted,
   onDelete,
@@ -17,6 +19,8 @@ export function SetRow({
   set: SetEntry
   index: number
   isTimed: boolean
+  latestHint?: string
+  bestHint?: string
   onChange: (s: SetEntry) => void
   onSetCompleted?: () => void
   onDelete: () => void
@@ -78,92 +82,102 @@ export function SetRow({
   }
 
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 0" }}>
-      <span style={{ fontSize: 11, color: "var(--text-muted)", width: 38, flexShrink: 0 }}>
-        Set {index + 1}
-      </span>
+    <div style={{ padding: "5px 0" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <span style={{ fontSize: 11, color: "var(--text-muted)", width: 38, flexShrink: 0 }}>
+          Set {index + 1}
+        </span>
 
-      {isTimed ? (
-        <>
-          <input
-            type="number"
-            inputMode="decimal"
-            placeholder={unit === "min" ? "min" : "sec"}
-            value={displayValue}
-            onChange={(e) => handleDurationChange(e.target.value)}
-            style={inputStyle}
-          />
+        {isTimed ? (
+          <>
+            <input
+              type="number"
+              inputMode="decimal"
+              placeholder={unit === "min" ? "min" : "sec"}
+              value={displayValue}
+              onChange={(e) => handleDurationChange(e.target.value)}
+              style={inputStyle}
+            />
 
-          <div
+            <div
+              style={{
+                display: "flex",
+                background: "var(--bg-elevated)",
+                border: "0.5px solid var(--border-default)",
+                borderRadius: "var(--radius-sm)",
+                overflow: "hidden",
+                flexShrink: 0,
+              }}
+            >
+              {(["sec", "min"] as const).map((u) => (
+                <button
+                  key={u}
+                  onClick={() => setUnit(u)}
+                  style={{
+                    background: unit === u ? "var(--accent)" : "transparent",
+                    border: "none",
+                    color: unit === u ? "#fff" : "var(--text-muted)",
+                    fontSize: 11,
+                    fontWeight: unit === u ? 500 : 400,
+                    padding: "6px 9px",
+                    cursor: "pointer",
+                    fontFamily: "inherit",
+                    transition: "background 0.15s, color 0.15s",
+                  }}
+                >
+                  {u}
+                </button>
+              ))}
+            </div>
+          </>
+        ) : (
+          <>
+            <input
+              type="number"
+              inputMode="decimal"
+              placeholder="kg"
+              value={set.weightKg ?? ""}
+              onChange={(e) => handleWeightChange(e.target.value)}
+              style={inputStyle}
+            />
+            <span style={{ fontSize: 13, color: "var(--text-muted)", flexShrink: 0 }}>×</span>
+            <input
+              type="number"
+              inputMode="numeric"
+              placeholder="reps"
+              value={set.reps ?? ""}
+              onChange={(e) => handleRepsChange(e.target.value)}
+              style={inputStyle}
+            />
+          </>
+        )}
+
+        {canDelete && (
+          <button
+            onClick={onDelete}
+            aria-label="Delete set"
             style={{
-              display: "flex",
-              background: "var(--bg-elevated)",
-              border: "0.5px solid var(--border-default)",
-              borderRadius: "var(--radius-sm)",
-              overflow: "hidden",
+              background: "none",
+              border: "none",
+              color: "var(--text-muted)",
+              cursor: "pointer",
+              padding: 4,
               flexShrink: 0,
+              opacity: 0.6,
+              display: "flex",
             }}
           >
-            {(["sec", "min"] as const).map((u) => (
-              <button
-                key={u}
-                onClick={() => setUnit(u)}
-                style={{
-                  background: unit === u ? "var(--accent)" : "transparent",
-                  border: "none",
-                  color: unit === u ? "#fff" : "var(--text-muted)",
-                  fontSize: 11,
-                  fontWeight: unit === u ? 500 : 400,
-                  padding: "6px 9px",
-                  cursor: "pointer",
-                  fontFamily: "inherit",
-                  transition: "background 0.15s, color 0.15s",
-                }}
-              >
-                {u}
-              </button>
-            ))}
-          </div>
-        </>
-      ) : (
-        <>
-          <input
-            type="number"
-            inputMode="decimal"
-            placeholder="kg"
-            value={set.weightKg ?? ""}
-            onChange={(e) => handleWeightChange(e.target.value)}
-            style={inputStyle}
-          />
-          <span style={{ fontSize: 13, color: "var(--text-muted)", flexShrink: 0 }}>×</span>
-          <input
-            type="number"
-            inputMode="numeric"
-            placeholder="reps"
-            value={set.reps ?? ""}
-            onChange={(e) => handleRepsChange(e.target.value)}
-            style={inputStyle}
-          />
-        </>
-      )}
+            <IcoTrash />
+          </button>
+        )}
+      </div>
 
-      {canDelete && (
-        <button
-          onClick={onDelete}
-          aria-label="Delete set"
-          style={{
-            background: "none",
-            border: "none",
-            color: "var(--text-muted)",
-            cursor: "pointer",
-            padding: 4,
-            flexShrink: 0,
-            opacity: 0.6,
-            display: "flex",
-          }}
-        >
-          <IcoTrash />
-        </button>
+      {index === 0 && (latestHint || bestHint) && (
+        <p style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 4, marginLeft: 46 }}>
+          {latestHint ? `Latest: ${latestHint}` : ""}
+          {latestHint && bestHint ? " · " : ""}
+          {bestHint ? `Best: ${bestHint}` : ""}
+        </p>
       )}
     </div>
   )

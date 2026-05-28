@@ -217,10 +217,20 @@ export default function ProgressPage() {
       <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", minHeight: "60dvh", gap: 12, textAlign: "center", padding: "0 24px" }}>
         <div style={{ color: "var(--text-muted)" }}><IcoPulse size={48} /></div>
         <h1 style={{ fontSize: 20, fontWeight: 500, color: "var(--text-primary)" }}>No workouts yet</h1>
-        <p style={{ fontSize: 14, color: "var(--text-secondary)", lineHeight: 1.6 }}>Log your first session and your progress will appear here.</p>
+        <p style={{ fontSize: 14, color: "var(--text-secondary)", lineHeight: 1.6 }}>
+          Log your first session and your progress will appear here. Start with onboarding or review your plan if you need a quick setup.
+        </p>
         <Link href="/log" style={{ marginTop: 8, background: "var(--accent)", borderRadius: "var(--radius-md)", color: "#fff", fontSize: 14, fontWeight: 500, padding: "11px 24px", textDecoration: "none" }}>
           Log first workout
         </Link>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "center" }}>
+          <Link href="/onboarding" style={{ textDecoration: "none", border: "0.5px solid var(--border-default)", borderRadius: "var(--radius-md)", color: "var(--text-secondary)", fontSize: 12, padding: "8px 12px" }}>
+            Finish onboarding
+          </Link>
+          <Link href="/program" style={{ textDecoration: "none", border: "0.5px solid var(--border-default)", borderRadius: "var(--radius-md)", color: "var(--text-secondary)", fontSize: 12, padding: "8px 12px" }}>
+            View program
+          </Link>
+        </div>
       </div>
     )
   }

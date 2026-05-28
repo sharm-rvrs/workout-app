@@ -4,6 +4,9 @@ import { useState, useEffect } from "react"
 import { useRouter } from "next/navigation"
 import { createClient } from "@/lib/supabase/client"
 import { IcoBot, IcoCheck, IcoLoader, IcoSettings } from "@/components/AppIcons"
+import { trackTelemetryEvent } from "@/lib/telemetry"
+import { getOnboardingTransition, markOnboardingCompleted } from "@/lib/onboarding"
+import { isValidRecommendationShape, type WeeklySeriesDay } from "@/lib/recommendation"
 
 // ─────────────────────────────────────────────
 //  Typing animation for AI text
@@ -85,6 +88,8 @@ export default function OnboardingPage() {
   const [firstName, setFirstName]         = useState<string>("")
   const [confirming, setConfirming]       = useState(false)
   const [error, setError]                 = useState<string | null>(null)
+  const [weeklySeries, setWeeklySeries]   = useState<WeeklySeriesDay[]>([])
+  const [isCustomizeModalOpen, setIsCustomizeModalOpen] = useState(false)
 
   useEffect(() => {
     let cancelled = false
@@ -96,10 +101,26 @@ export default function OnboardingPage() {
         const data = await res.json()
         if (cancelled) return
 
+        if (!isValidRecommendationShape(data)) {
+          throw new Error("Invalid recommendation shape")
+        }
+
         // Extract first name for personalised greeting
         const name: string = data.profile?.full_name ?? ""
         setFirstName(name.split(" ")[0] ?? "")
-        setRecommendation(data.recommendation ?? "")
+        setRecommendation(data.recommendation)
+        setWeeklySeries(data.weekly_series)
+
+        trackTelemetryEvent("recommendation_generated", {
+          source: data.source,
+          weekly_days: data.weekly_series.length,
+        })
+
+        if (data.source === "fallback") {
+          trackTelemetryEvent("recommendation_fallback_used", {
+            reason: "ai_unavailable_or_failed",
+          })
+        }
       } catch {
         if (!cancelled) setError("Couldn't load your recommendation. You can skip and set up manually.")
       } finally {
@@ -111,24 +132,93 @@ export default function OnboardingPage() {
     return () => { cancelled = true }
   }, [])
 
+  useEffect(() => {
+    if (!isCustomizeModalOpen) return
+
+    const previousOverflow = document.body.style.overflow
+    document.body.style.overflow = "hidden"
+
+    return () => {
+      document.body.style.overflow = previousOverflow
+    }
+  }, [isCustomizeModalOpen])
+
+  async function applyRecommendedProgram(): Promise<boolean> {
+    try {
+      const res = await fetch("/api/recommend-program", { method: "POST" })
+      if (!res.ok) {
+        setError("Couldn't apply your program yet. Please try again.")
+        return false
+      }
+
+      await res.json().catch(() => null)
+      return true
+    } catch {
+      setError("Couldn't apply your program yet. Please try again.")
+      return false
+    }
+  }
+
   async function confirmProgram() {
+    trackTelemetryEvent("onboarding_use_plan_clicked", {
+      source: "onboarding",
+    })
+    trackTelemetryEvent("recommendation_accepted", {
+      source: "onboarding",
+    })
+
     setConfirming(true)
+    setError(null)
+
+    const didApplyProgram = await applyRecommendedProgram()
+    if (!didApplyProgram) {
+      setConfirming(false)
+      return
+    }
+
     const supabase = createClient()
     const { data: { user } } = await supabase.auth.getUser()
 
     if (user) {
-      await supabase
-        .from("profiles")
-        .update({ program_confirmed_at: new Date().toISOString() })
-        .eq("id", user.id)
+      try {
+        const { confirmedAt, persistedFields } = await markOnboardingCompleted(supabase, user.id, "use_plan")
+        trackTelemetryEvent("onboarding_completed", {
+          source: "use_plan",
+          confirmed_at: confirmedAt,
+          persisted_fields: persistedFields.join(","),
+        })
+      } catch {
+        setConfirming(false)
+        setError("Couldn't confirm your plan yet. Please try again.")
+        return
+      }
     }
 
-    router.push("/")
+    const transition = getOnboardingTransition("use_plan")
+    router.push(transition.nextPath)
     router.refresh()
   }
 
-  function goCustomize() {
-    router.push("/program")
+  async function goCustomize() {
+    trackTelemetryEvent("onboarding_customize_clicked", {
+      source: "onboarding",
+    })
+    trackTelemetryEvent("recommendation_rejected", {
+      source: "onboarding",
+      reason: "customize_clicked",
+    })
+
+    setConfirming(true)
+    setError(null)
+
+    const didApplyProgram = await applyRecommendedProgram()
+    if (!didApplyProgram) {
+      setConfirming(false)
+      return
+    }
+
+    setIsCustomizeModalOpen(true)
+    setConfirming(false)
   }
 
   return (
@@ -232,16 +322,8 @@ export default function OnboardingPage() {
           }}>
             Your program includes
           </p>
-          {[
-            "Mon — Upper Body Push (Chest / Shoulders / Triceps)",
-            "Tue — Lower Body (Quads / Glutes / Hamstrings)",
-            "Wed — Active Recovery (Cardio + Mobility)",
-            "Thu — Upper Body Pull (Back / Biceps / Rear Delts)",
-            "Fri — Full Body + Core",
-            "Sat — HIIT + Jump Rope",
-            "Sun — Rest Day",
-          ].map((item) => (
-            <div key={item} style={{
+          {weeklySeries.map((item) => (
+            <div key={item.day_key} style={{
               display: "flex", alignItems: "flex-start", gap: 8, marginBottom: 7,
             }}>
               <div style={{
@@ -255,7 +337,7 @@ export default function OnboardingPage() {
                 <IcoCheck />
               </div>
               <span style={{ fontSize: 13, color: "var(--text-secondary)", lineHeight: 1.5 }}>
-                {item}
+                {`${item.day_key.slice(0, 3).toUpperCase()} — ${item.label} (${item.focus})`}
               </span>
             </div>
           ))}
@@ -294,7 +376,7 @@ export default function OnboardingPage() {
 
           <button
             onClick={goCustomize}
-            disabled={confirming}
+            disabled={confirming || loading}
             style={{
               width: "100%",
               background: "none",
@@ -302,7 +384,7 @@ export default function OnboardingPage() {
               borderRadius: "var(--radius-md)",
               color: "var(--text-secondary)",
               fontSize: 14, padding: "13px 0",
-              cursor: confirming ? "default" : "pointer",
+              cursor: confirming || loading ? "default" : "pointer",
               fontFamily: "inherit",
               display: "flex", alignItems: "center",
               justifyContent: "center", gap: 7,
@@ -322,6 +404,76 @@ export default function OnboardingPage() {
         </p>
 
       </div>
+
+      {isCustomizeModalOpen && (
+        <div style={{
+          position: "fixed",
+          inset: 0,
+          background: "rgba(0, 0, 0, 0.6)",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          padding: 16,
+          zIndex: 1000,
+        }}>
+          <div style={{
+            width: "100%",
+            maxWidth: 980,
+            height: "min(85dvh, 860px)",
+            background: "var(--bg-surface)",
+            border: "0.5px solid var(--border-default)",
+            borderRadius: "var(--radius-xl)",
+            overflow: "hidden",
+            display: "flex",
+            flexDirection: "column",
+            boxShadow: "0 20px 60px rgba(0, 0, 0, 0.35)",
+          }}>
+            <div style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              padding: "14px 18px",
+              borderBottom: "0.5px solid var(--border-subtle)",
+            }}>
+              <h2 style={{
+                margin: 0,
+                fontSize: 18,
+                fontWeight: 600,
+                color: "var(--text-primary)",
+              }}>
+                Customize Program
+              </h2>
+              <button
+                onClick={() => setIsCustomizeModalOpen(false)}
+                style={{
+                  background: "var(--accent)",
+                  color: "#fff",
+                  border: "none",
+                  borderRadius: "var(--radius-md)",
+                  padding: "8px 14px",
+                  fontSize: 13,
+                  fontWeight: 500,
+                  cursor: "pointer",
+                  fontFamily: "inherit",
+                }}
+              >
+                Done
+              </button>
+            </div>
+
+            <iframe
+              title="Program editor"
+              src="/program"
+              style={{
+                width: "100%",
+                height: "100%",
+                border: "none",
+                background: "var(--bg-base)",
+              }}
+            />
+          </div>
+        </div>
+      )}
     </div>
   )
 }

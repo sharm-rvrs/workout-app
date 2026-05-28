@@ -13,6 +13,19 @@ import {
   type ExerciseLog,
   type DayKey,
 } from "@/lib/workout-data"
+
+const LEGACY_SCHEMA_ERROR_CODES = new Set(["PGRST204", "42703"])
+
+export function isLegacySchemaSaveError(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false
+  const maybeError = error as { code?: unknown; message?: unknown; details?: unknown }
+  if (typeof maybeError.code === "string" && LEGACY_SCHEMA_ERROR_CODES.has(maybeError.code)) {
+    return true
+  }
+
+  const text = `${String(maybeError.message ?? "")} ${String(maybeError.details ?? "")}`.toLowerCase()
+  return text.includes("column") && (text.includes("does not exist") || text.includes("not found"))
+}
                       
 export function useWorkoutLog() {
   const [logs, setLogs] = useState<WorkoutLog[]>([])
@@ -53,7 +66,11 @@ export function useWorkoutLog() {
     setLogs(getLogs())
     try {
       await savelogAsync(log)
-    } catch {
+    } catch (error) {
+      if (isLegacySchemaSaveError(error)) {
+        // Keep optimistic local state when legacy schemas reject optional columns.
+        return
+      }
       const latest = await getLogsAsync(true)
       setLogs(latest)
     }
