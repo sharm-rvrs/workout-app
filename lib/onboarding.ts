@@ -47,7 +47,7 @@ export function getOnboardingTransition(action: "customize" | "use_plan"): Onboa
 type ProfilesUpdateClient = {
   from: (table: "profiles") => {
     update: (values: Record<string, unknown>) => {
-      eq: (column: "id", value: string) => Promise<{ error: MissingColumnError | null }>
+      eq: (column: "id", value: string) => PromiseLike<{ error: MissingColumnError | null }>
     }
   }
 }

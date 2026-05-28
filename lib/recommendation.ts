@@ -122,7 +122,6 @@ const FOCUS_EXERCISES: Record<string, string[]> = {
   "Lower Hypertrophy": ["Leg Press", "Hamstring Curl", "Bulgarian Split Squat", "Calf Raise"],
   "HIIT Finisher": ["Bike Sprints", "Jump Squat", "Mountain Climber", "Cooldown"],
   "Upper Body": ["Press", "Row", "Shoulders", "Arms"],
-  "Conditioning": ["Cardio Intervals", "Jump Rope", "Core", "Mobility"],
   "Mobility + Core": ["Mobility Flow", "Bird Dog", "Side Plank", "Stretch"],
   "Optional Cardio": ["Brisk Walk", "Cycle", "Easy Rope", "Stretch"],
   "Aerobic Base": ["Zone 2 Cardio", "Cadence Drill", "Core", "Mobility"],
