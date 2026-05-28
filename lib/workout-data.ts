@@ -621,8 +621,8 @@ type WorkoutLogRow = {
   id: string
   user_id: string
   date: string
-  day_key: DayKey
-  day_override: DayKey | null
+  day_key?: DayKey | null
+  day_override?: DayKey | null
   skipped_exercise_ids: string[] | null
   completed_at: string
   exercise_logs: ExerciseLogRow[] | null
@@ -769,7 +769,7 @@ function mapRowToLog(row: WorkoutLogRow): WorkoutLog {
   return {
     id: row.id,
     date: row.date,
-    dayKey: row.day_key,
+    dayKey: row.day_key ?? getDayKeyFromStr(row.date),
     dayOverride: row.day_override ?? undefined,
     skippedExerciseIds: row.skipped_exercise_ids ?? [],
     exercises,
@@ -836,7 +836,7 @@ async function hydrateLogsFromSupabase(force = false): Promise<WorkoutLog[]> {
         return logsCache
       }
 
-      const { data, error } = await supabase
+      const fullSelect = await supabase
         .from("workout_logs")
         .select(`
           id,
@@ -866,9 +866,47 @@ async function hydrateLogsFromSupabase(force = false): Promise<WorkoutLog[]> {
         .eq("user_id", currentUserId)
         .order("date", { ascending: false })
 
-      if (error) throw error
+      let rows: WorkoutLogRow[] = []
 
-      logsCache = normalizeLogs(((data ?? []) as WorkoutLogRow[]).map(mapRowToLog))
+      if (!fullSelect.error) {
+        rows = (fullSelect.data ?? []) as WorkoutLogRow[]
+      } else if (isMissingColumnError(fullSelect.error)) {
+        const fallbackSelect = await supabase
+          .from("workout_logs")
+          .select(`
+            id,
+            user_id,
+            date,
+            completed_at,
+            exercise_logs (
+              id,
+              workout_log_id,
+              exercise_name,
+              is_custom,
+              is_timed,
+              notes,
+              order_index,
+              set_entries (
+                set_number,
+                weight_kg,
+                reps,
+                duration_seconds
+              )
+            )
+          `)
+          .eq("user_id", currentUserId)
+          .order("date", { ascending: false })
+
+        if (fallbackSelect.error) {
+          throw fallbackSelect.error
+        }
+
+        rows = (fallbackSelect.data ?? []) as WorkoutLogRow[]
+      } else {
+        throw fullSelect.error
+      }
+
+      logsCache = normalizeLogs(rows.map(mapRowToLog))
       hydrated = true
       persistCacheToLocalStorage(currentUserId)
       emitLogsUpdated()

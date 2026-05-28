@@ -13,7 +13,10 @@ function isMissingColumnError(error: MissingColumnError | null | undefined): boo
   }
 
   const text = `${error.message ?? ""} ${error.details ?? ""}`.toLowerCase()
-  return text.includes("column") && (text.includes("does not exist") || text.includes("not found"))
+  return (
+    text.includes("column") &&
+    (text.includes("does not exist") || text.includes("not found") || text.includes("could not find"))
+  )
 }
 
 function removeField<T extends Record<string, unknown>>(payload: T, field: string): T {
@@ -70,6 +73,7 @@ export async function markOnboardingCompleted(
     "onboarding_completion_source",
     "onboarding_completed_at",
     "onboarding_complete",
+    "program_confirmed_at",
   ]
 
   let fallbackIndex = 0
@@ -91,7 +95,9 @@ export async function markOnboardingCompleted(
       throw error
     }
 
-    const missingColumn = error.message?.match(/column\s+"([^"]+)"/i)?.[1]
+    const missingColumn =
+      error.message?.match(/column\s+"([^"]+)"/i)?.[1] ??
+      error.message?.match(/'([^']+)'\s+column/i)?.[1]
     if (missingColumn) {
       payload = removeField(payload, missingColumn)
       continue
@@ -105,5 +111,10 @@ export async function markOnboardingCompleted(
     fallbackIndex += 1
   }
 
-  throw new Error("Unable to persist onboarding completion state")
+  // Legacy schemas may miss all onboarding confirmation columns.
+  // Do not block onboarding flow in that case.
+  return {
+    confirmedAt,
+    persistedFields: [],
+  }
 }
