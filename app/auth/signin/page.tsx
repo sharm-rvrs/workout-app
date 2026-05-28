@@ -1,6 +1,6 @@
 "use client"
 
-import { Suspense, useState } from "react"
+import { Suspense, useEffect, useState } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import Link from "next/link"
 import { createClient } from "@/lib/supabase/client"
@@ -98,6 +98,7 @@ function SignInContent() {
   const searchParams = useSearchParams()
 
   const verifyRequired = searchParams.get("verify") === "1"
+  const accountExists = searchParams.get("exists") === "1"
   const prefilledEmail = searchParams.get("email") ?? ""
 
   const [email, setEmail]         = useState(prefilledEmail)
@@ -105,8 +106,59 @@ function SignInContent() {
   const [showPass, setShowPass]   = useState(false)
   const [loading, setLoading]     = useState(false)
   const [error, setError]         = useState<string | null>(null)
+  const [resendLoading, setResendLoading] = useState(false)
+  const [resendCooldown, setResendCooldown] = useState(0)
+  const [resendFeedback, setResendFeedback] = useState<{ type: "success" | "error"; message: string } | null>(null)
 
   const isValid = email.trim().length > 0 && password.length >= 6
+
+  useEffect(() => {
+    if (resendCooldown <= 0) return
+
+    const timer = window.setTimeout(() => {
+      setResendCooldown((seconds) => Math.max(0, seconds - 1))
+    }, 1000)
+
+    return () => window.clearTimeout(timer)
+  }, [resendCooldown])
+
+  async function handleResendConfirmation() {
+    if (resendLoading || resendCooldown > 0) return
+
+    const normalizedEmail = email.trim().toLowerCase()
+    if (!normalizedEmail || !normalizedEmail.includes("@")) {
+      setResendFeedback({
+        type: "error",
+        message: "Enter a valid email address to resend confirmation.",
+      })
+      return
+    }
+
+    setResendLoading(true)
+    setResendFeedback(null)
+
+    const supabase = createClient()
+    const { error: resendError } = await supabase.auth.resend({
+      type: "signup",
+      email: normalizedEmail,
+    })
+
+    if (resendError) {
+      setResendFeedback({
+        type: "error",
+        message: resendError.message || "Failed to resend confirmation email. Please try again.",
+      })
+      setResendLoading(false)
+      return
+    }
+
+    setResendFeedback({
+      type: "success",
+      message: "Confirmation email sent.",
+    })
+    setResendCooldown(60)
+    setResendLoading(false)
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -253,8 +305,58 @@ function SignInContent() {
                 <span style={{ color: "#4caf7d", flexShrink: 0, marginTop: 1 }}>
                   <IcoAlert />
                 </span>
-                <p style={{ fontSize: 13, color: "#8fd4ad", lineHeight: 1.5 }}>
-                  Account created. Please check your email and confirm your account before signing in.
+                <div style={{ display: "flex", flexDirection: "column", gap: 8, flex: 1 }}>
+                  <p style={{ fontSize: 13, color: "#8fd4ad", lineHeight: 1.5 }}>
+                    Account created. Please check your email and confirm your account before signing in.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={handleResendConfirmation}
+                    disabled={resendLoading || resendCooldown > 0}
+                    style={{
+                      alignSelf: "flex-start",
+                      padding: 0,
+                      border: "none",
+                      background: "none",
+                      color: resendLoading || resendCooldown > 0 ? "#74b998" : "#a6e6bf",
+                      fontSize: 13,
+                      fontWeight: 500,
+                      textDecoration: "underline",
+                      cursor: resendLoading || resendCooldown > 0 ? "default" : "pointer",
+                      fontFamily: "inherit",
+                    }}>
+                    {resendLoading ? "Sending..." : resendCooldown > 0 ? `Resend confirmation email (${resendCooldown}s)` : "Resend confirmation email"}
+                  </button>
+                  {resendFeedback && (
+                    <p
+                      style={{
+                        fontSize: 12,
+                        lineHeight: 1.4,
+                        color: resendFeedback.type === "error" ? "#fca5a5" : "#a6e6bf",
+                      }}>
+                      {resendFeedback.message}
+                    </p>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Existing account notice */}
+            {accountExists && !error && (
+              <div style={{
+                display: "flex",
+                alignItems: "flex-start",
+                gap: 8,
+                background: "rgba(59,130,246,0.10)",
+                border: "0.5px solid rgba(59,130,246,0.35)",
+                borderRadius: "var(--radius-md)",
+                padding: "10px 12px",
+              }}>
+                <span style={{ color: "#60a5fa", flexShrink: 0, marginTop: 1 }}>
+                  <IcoAlert />
+                </span>
+                <p style={{ fontSize: 13, color: "#93c5fd", lineHeight: 1.5 }}>
+                  An account with this email already exists. Please sign in to continue.
                 </p>
               </div>
             )}
@@ -284,7 +386,7 @@ function SignInContent() {
               label="Email"
               type="email"
               value={email}
-              onChange={(v) => { setEmail(v); setError(null) }}
+              onChange={(v) => { setEmail(v); setError(null); setResendFeedback(null) }}
               placeholder="you@example.com"
               autoComplete="email"
               error={!!error}

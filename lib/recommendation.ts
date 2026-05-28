@@ -39,6 +39,7 @@ export type RecommendationResponse = {
   recommendation: string
   weekly_series: WeeklySeriesDay[]
   source: "ai" | "fallback"
+  profile?: RecommendationProfile
 }
 
 const DAY_ORDER = [
@@ -252,6 +253,21 @@ export function isValidRecommendationShape(response: unknown): response is Recom
 
   if (!Array.isArray(value.weekly_series) || value.weekly_series.length !== 7) {
     return false
+  }
+
+  if (value.profile !== undefined) {
+    if (!value.profile || typeof value.profile !== "object") {
+      return false
+    }
+
+    const profile = value.profile as RecommendationProfile
+    if (profile.user_id !== undefined && typeof profile.user_id !== "string") return false
+    if (profile.full_name !== undefined && profile.full_name !== null && typeof profile.full_name !== "string") return false
+    if (profile.age !== undefined && profile.age !== null && typeof profile.age !== "number") return false
+    if (profile.weight_kg !== undefined && profile.weight_kg !== null && typeof profile.weight_kg !== "number") return false
+    if (profile.height_cm !== undefined && profile.height_cm !== null && typeof profile.height_cm !== "number") return false
+    if (profile.goal !== undefined && profile.goal !== null && typeof profile.goal !== "string") return false
+    if (profile.fitness_level !== undefined && profile.fitness_level !== null && typeof profile.fitness_level !== "string") return false
   }
 
   return value.weekly_series.every((day) => {

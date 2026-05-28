@@ -41,6 +41,47 @@ interface FormState {
 
 const SIGNUP_COOLDOWN_MS = 60_000
 
+function isPendingConfirmationError(code: string, message: string) {
+  return code.includes("email_not_confirmed") || message.includes("email not confirmed")
+}
+
+function isInvalidCredentialError(code: string, message: string) {
+  return code.includes("invalid_credentials") || message.includes("invalid") || message.includes("credentials")
+}
+
+function isSignupRateLimit(code: string, message: string) {
+  return code === "over_email_send_rate_limit" || message.includes("email rate limit")
+}
+
+function mapSignUpErrorMessage(
+  signUpMessage: string,
+  signUpCode: string,
+  probeMessage: string,
+  probeCode: string,
+) {
+  if (isPendingConfirmationError(probeCode, probeMessage) || isPendingConfirmationError(signUpCode, signUpMessage)) {
+    return "Account created. Please check your email and confirm your account before signing in."
+  }
+  if (isSignupRateLimit(signUpCode, signUpMessage)) {
+    return "Too many signup attempts in a short time. Please wait before trying again."
+  }
+  if (signUpMessage.includes("already") || probeMessage.includes("already")) {
+    return "An account with this email already exists. Try signing in."
+  }
+  if (probeMessage.includes("too many")) {
+    return "Too many attempts. Please wait a few minutes and try again."
+  }
+  if (isInvalidCredentialError(probeCode, probeMessage)) {
+    return "Incorrect email or password format. Please review your credentials and try again."
+  }
+  if (signUpMessage.includes("database") || signUpMessage.includes("saving new user")) {
+    return "Account could not be created due to a server auth rule. Please contact support."
+  }
+  if (signUpMessage) return signUpMessage
+  if (probeMessage) return probeMessage
+  return "We couldn't complete sign-up right now. Please try again."
+}
+
 // ─────────────────────────────────────────────
 //  Step config
 // ─────────────────────────────────────────────
@@ -324,23 +365,40 @@ export default function SignUpPage() {
       })
 
       if (signUpError || !authData.user) {
-        localStorage.removeItem("pending_signup_profile")
-        const msg = signUpError?.message ?? "Sign-up failed."
-        const code = signUpError?.code?.toLowerCase() ?? ""
-        const lowerMsg = msg.toLowerCase()
+        const signUpMessage = (signUpError?.message ?? "").toLowerCase()
+        const signUpCode = signUpError?.code?.toLowerCase() ?? ""
 
-        if (code === "over_email_send_rate_limit" || lowerMsg.includes("email rate limit")) {
+        const { data: probeData, error: probeError } = await supabase.auth.signInWithPassword({
+          email: normalizedEmail,
+          password: form.password,
+        })
+
+        const probeMessage = (probeError?.message ?? "").toLowerCase()
+        const probeCode = probeError?.code?.toLowerCase() ?? ""
+
+        if (probeData.session) {
+          localStorage.removeItem("pending_signup_profile")
+          await supabase.auth.signOut()
+          router.push(`/auth/signin?exists=1&email=${encodeURIComponent(normalizedEmail)}`)
+          router.refresh()
+          return
+        }
+
+        if (isPendingConfirmationError(probeCode, probeMessage)) {
+          router.push(`/auth/signin?verify=1&email=${encodeURIComponent(normalizedEmail)}`)
+          router.refresh()
+          return
+        }
+
+        localStorage.removeItem("pending_signup_profile")
+
+        if (isSignupRateLimit(signUpCode, signUpMessage)) {
           const until = Date.now() + SIGNUP_COOLDOWN_MS
           setCooldownUntil(until)
           setNowMs(Date.now())
-          setGlobalError("Too many signup attempts in a short time. Please wait before trying again.")
-        } else if (lowerMsg.includes("already")) {
-          setGlobalError("An account with this email already exists. Try signing in.")
-        } else if (lowerMsg.includes("database") || lowerMsg.includes("saving new user")) {
-          setGlobalError("Account could not be created due to a server auth rule. Please contact support.")
-        } else {
-          setGlobalError(msg)
         }
+
+        setGlobalError(mapSignUpErrorMessage(signUpMessage, signUpCode, probeMessage, probeCode))
         return
       }
 
@@ -386,6 +444,7 @@ export default function SignUpPage() {
       router.refresh()
     } catch (err) {
       console.error("Sign-up error:", err)
+      localStorage.removeItem("pending_signup_profile")
       setGlobalError("We couldn't complete sign-up right now. Please try again.")
     } finally {
       setLoading(false)
