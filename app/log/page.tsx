@@ -35,6 +35,38 @@ function getMaxWeightForExercise(ex: ExerciseLog): number {
   return max
 }
 
+function buildLogDraftKey(
+  date: string,
+  effectiveDayKey: DayKey,
+  skippedIds: Set<string>,
+  exerciseLogs: ExerciseLog[]
+): string {
+  const stableExercises = exerciseLogs.map((exercise) => ({
+    exerciseId: exercise.exerciseId,
+    exerciseName: exercise.exerciseName,
+    isCustom: !!exercise.isCustom,
+    isTimed: !!exercise.isTimed,
+    youtubeUrl: exercise.youtubeUrl ?? "",
+    notes: exercise.notes ?? "",
+    sets: exercise.sets
+      .slice()
+      .sort((a, b) => a.setNumber - b.setNumber)
+      .map((set) => ({
+        setNumber: set.setNumber,
+        weightKg: set.weightKg ?? null,
+        reps: set.reps ?? null,
+        durationSeconds: set.durationSeconds ?? null,
+      })),
+  }))
+
+  return JSON.stringify({
+    date,
+    effectiveDayKey,
+    skippedIds: Array.from(skippedIds).sort(),
+    exercises: stableExercises,
+  })
+}
+
 function LogPageInner() {
   const searchParams = useSearchParams()
   const initialDate = searchParams.get("date") ?? todayStrPH()
@@ -50,6 +82,7 @@ function LogPageInner() {
   const [programLoading, setProgramLoading] = useState(true)
   const [prefillRecent, setPrefillRecent] = useState<RecentExerciseTemplate | null>(null)
   const [hasSentLogStarted, setHasSentLogStarted] = useState(false)
+  const [initialStateKey, setInitialStateKey] = useState<string | null>(null)
   const recentExercises = getRecentExerciseTemplates(getLogs())
 
   useEffect(() => {
@@ -89,17 +122,22 @@ function LogPageInner() {
       queueMicrotask(() => {
         setLogId(existing.id)
         setEffectiveDayKey(existingEffectiveDayKey)
-        setSkippedIds(new Set(existing.skippedExerciseIds ?? []))
+        const nextSkippedIds = new Set(existing.skippedExerciseIds ?? [])
+        setSkippedIds(nextSkippedIds)
         setExerciseLogs(resolvedExercises)
+        setInitialStateKey(buildLogDraftKey(date, existingEffectiveDayKey, nextSkippedIds, resolvedExercises))
       })
     } else {
       const key = getDayKeyFromStr(date)
       const day = programByDay[key] ?? WORKOUT_PLAN[key]
+      const defaultLogs = createExerciseLogsFromWorkoutDay(day)
       queueMicrotask(() => {
         setLogId(crypto.randomUUID())
         setEffectiveDayKey(key)
-        setSkippedIds(new Set())
-        setExerciseLogs(createExerciseLogsFromWorkoutDay(day))
+        const nextSkippedIds = new Set<string>()
+        setSkippedIds(nextSkippedIds)
+        setExerciseLogs(defaultLogs)
+        setInitialStateKey(buildLogDraftKey(date, key, nextSkippedIds, defaultLogs))
       })
     }
   }, [date, programLoading, programByDay])
@@ -120,6 +158,7 @@ function LogPageInner() {
   function handleDateChange(nextDate: string) {
     setDate(nextDate)
     setHasSentLogStarted(false)
+    setInitialStateKey(null)
   }
 
   function removeExercise(exerciseId: string, isCustom: boolean) {
@@ -182,6 +221,8 @@ function LogPageInner() {
         completedAt: new Date().toISOString(),
       })
 
+      setInitialStateKey(currentStateKey)
+
       trackTelemetryEvent("log_saved", {
         date,
         day_key: dayKey,
@@ -216,13 +257,17 @@ function LogPageInner() {
 
   if (programLoading) return null
 
+  const currentStateKey = buildLogDraftKey(date, effectiveDayKey, skippedIds, exerciseLogs)
+  const hasUnsavedChanges = initialStateKey !== null && initialStateKey !== currentStateKey
+
   const workout = programByDay[effectiveDayKey] ?? WORKOUT_PLAN[effectiveDayKey]
   const isRestDay = workout.icon === "rest"
+  const showFloatingSaveBar = hasUnsavedChanges && !isRestDay
   const isOverridden = effectiveDayKey !== getDayKeyFromStr(date)
   const hasAnyLogs = getLogs().length > 0
 
   return (
-    <div style={{ paddingTop: 10, paddingBottom: 8 }}>
+    <div style={{ paddingTop: 10, paddingBottom: hasUnsavedChanges && !isRestDay ? 86 : 8 }}>
       <div style={{ marginBottom: 18 }}>
         <h1
           style={{
@@ -497,8 +542,66 @@ function LogPageInner() {
           >
             <IcoSave /> Save workout
           </button>
+
+          {hasUnsavedChanges && (
+            <p
+              style={{
+                marginTop: 8,
+                fontSize: 11,
+                color: "var(--accent)",
+                textAlign: "center",
+              }}
+            >
+              Unsaved changes
+            </p>
+          )}
         </>
       )}
+
+      <div
+        style={{
+          position: "fixed",
+          bottom: "calc(var(--nav-height) + 12px)",
+          left: "50%",
+          transform: `translate(-50%, ${showFloatingSaveBar ? "0" : "10px"})`,
+          opacity: showFloatingSaveBar ? 1 : 0,
+          pointerEvents: showFloatingSaveBar ? "auto" : "none",
+          background: "var(--bg-elevated)",
+          border: "0.5px solid var(--accent-border)",
+          borderRadius: 30,
+          padding: "10px 16px",
+          display: "flex",
+          alignItems: "center",
+          gap: 12,
+          boxShadow: "0 4px 24px rgba(0,0,0,0.5)",
+          zIndex: 40,
+          transition: "opacity 180ms ease, transform 180ms ease",
+        }}
+      >
+        <p style={{ fontSize: 13, color: "var(--text-secondary)", whiteSpace: "nowrap" }}>Unsaved changes</p>
+        <button
+          onClick={handleSave}
+          disabled={!showFloatingSaveBar}
+          tabIndex={showFloatingSaveBar ? 0 : -1}
+          style={{
+            background: "var(--accent)",
+            border: "none",
+            borderRadius: 20,
+            color: "#fff",
+            fontSize: 12,
+            fontWeight: 500,
+            padding: "8px 14px",
+            cursor: showFloatingSaveBar ? "pointer" : "default",
+            fontFamily: "inherit",
+            display: "flex",
+            alignItems: "center",
+            gap: 6,
+            opacity: showFloatingSaveBar ? 1 : 0.7,
+          }}
+        >
+          <IcoSave /> Save workout
+        </button>
+      </div>
 
       {showDayPicker && (
         <DayOverridePicker current={effectiveDayKey} onSelect={handleDayOverride} onCancel={() => setShowDayPicker(false)} />
