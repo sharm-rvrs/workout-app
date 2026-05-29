@@ -209,7 +209,7 @@ function Field({
         <p style={{ fontSize: 12, color: "#f87171", marginTop: 1 }}>{error}</p>
       )}
       {hint && !error && (
-        <p style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 1 }}>{hint}</p>
+        <p style={{ fontSize: 12, color: "var(--text-secondary)", marginTop: 1 }}>{hint}</p>
       )}
     </div>
   )
@@ -280,6 +280,10 @@ export default function SignUpPage() {
   const [nowMs, setNowMs] = useState(() => Date.now())
   const [globalError, setGlobalError]  = useState<string | null>(null)
   const [fieldErrors, setFieldErrors]  = useState<Partial<Record<keyof FormState, string>>>({})
+  const [showVerifyModal, setShowVerifyModal] = useState(false)
+  const [verificationEmail, setVerificationEmail] = useState("")
+  const [resendLoading, setResendLoading] = useState(false)
+  const [resendFeedback, setResendFeedback] = useState<string | null>(null)
 
   const [form, setForm] = useState<FormState>({
     email: "", password: "", confirmPassword: "",
@@ -385,8 +389,8 @@ export default function SignUpPage() {
         }
 
         if (isPendingConfirmationError(probeCode, probeMessage)) {
-          router.push(`/auth/signin?verify=1&email=${encodeURIComponent(normalizedEmail)}`)
-          router.refresh()
+          setVerificationEmail(normalizedEmail)
+          setShowVerifyModal(true)
           return
         }
 
@@ -439,15 +443,40 @@ export default function SignUpPage() {
       }
 
       // 3. Email confirmation flow: account is created, but no session yet.
-      // Redirect to sign-in with context instead of treating it as a failed signup.
-      router.push(`/auth/signin?verify=1&email=${encodeURIComponent(normalizedEmail)}`)
-      router.refresh()
+      setVerificationEmail(normalizedEmail)
+      setShowVerifyModal(true)
     } catch (err) {
       console.error("Sign-up error:", err)
       localStorage.removeItem("pending_signup_profile")
       setGlobalError("We couldn't complete sign-up right now. Please try again.")
     } finally {
       setLoading(false)
+    }
+  }
+
+  async function handleResendConfirmation() {
+    const targetEmail = verificationEmail || form.email.trim().toLowerCase()
+    if (!targetEmail || resendLoading) return
+
+    setResendLoading(true)
+    setResendFeedback(null)
+    try {
+      const supabase = createClient()
+      const { error } = await supabase.auth.resend({
+        type: "signup",
+        email: targetEmail,
+      })
+
+      if (error) {
+        setResendFeedback(error.message || "Could not resend confirmation email.")
+        return
+      }
+
+      setResendFeedback("Confirmation email sent. Check your inbox and spam folder.")
+    } catch {
+      setResendFeedback("Could not resend confirmation email.")
+    } finally {
+      setResendLoading(false)
     }
   }
 
@@ -581,7 +610,7 @@ export default function SignUpPage() {
               placeholder="" max={new Date().toISOString().split("T")[0]}
               icon={<IcoCalendar />} error={fieldErrors.birthday}
             />
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 12 }}>
               <Field
                 label="Weight" type="number" value={form.weightKg}
                 onChange={(v) => update("weightKg", v)}
@@ -598,7 +627,7 @@ export default function SignUpPage() {
               />
             </div>
 
-            <p style={{ fontSize: 12, color: "var(--text-muted)", lineHeight: 1.5 }}>
+            <p style={{ fontSize: 12, color: "var(--text-secondary)", lineHeight: 1.5 }}>
               Weight and height are used by the AI to personalize your program. You can update them anytime in your profile.
             </p>
           </div>
@@ -674,7 +703,7 @@ export default function SignUpPage() {
               <p style={{ fontSize: 13, fontWeight: 500, color: "var(--text-secondary)", marginBottom: 10 }}>
                 What is your current fitness level?
               </p>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8 }}>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(110px, 1fr))", gap: 8 }}>
                 {LEVEL_OPTIONS.map((opt) => {
                   const selected = form.fitnessLevel === opt.value
                   return (
@@ -695,7 +724,7 @@ export default function SignUpPage() {
                       }}>
                         {opt.label}
                       </p>
-                      <p style={{ fontSize: 10, color: "var(--text-muted)", lineHeight: 1.4 }}>
+                      <p style={{ fontSize: 10, color: "var(--text-secondary)", lineHeight: 1.4 }}>
                         {opt.desc}
                       </p>
                     </button>
@@ -786,6 +815,113 @@ export default function SignUpPage() {
         )}
 
       </div>
+
+      {showVerifyModal && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(0,0,0,0.62)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: 16,
+            zIndex: 80,
+          }}
+        >
+          <div
+            style={{
+              width: "100%",
+              maxWidth: 420,
+              background: "var(--bg-surface)",
+              border: "0.5px solid var(--border-default)",
+              borderRadius: "var(--radius-xl)",
+              padding: "20px 18px",
+            }}
+          >
+            <h2 style={{ fontSize: 20, fontWeight: 600, color: "var(--text-primary)", marginBottom: 8 }}>
+              Complete sign up
+            </h2>
+            <p style={{ fontSize: 13, color: "var(--text-secondary)", lineHeight: 1.6, marginBottom: 14 }}>
+              Please confirm your email{verificationEmail ? ` (${verificationEmail})` : ""} before signing in.
+            </p>
+
+            {resendFeedback && (
+              <p
+                style={{
+                  fontSize: 12,
+                  color: resendFeedback.toLowerCase().includes("sent") ? "var(--success)" : "#f87171",
+                  marginBottom: 10,
+                  lineHeight: 1.5,
+                }}
+              >
+                {resendFeedback}
+              </p>
+            )}
+
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              <button
+                type="button"
+                onClick={() => {
+                  router.push(`/auth/signin?verify=1&email=${encodeURIComponent(verificationEmail || form.email.trim().toLowerCase())}`)
+                  router.refresh()
+                }}
+                style={{
+                  width: "100%",
+                  background: "var(--accent)",
+                  border: "none",
+                  borderRadius: "var(--radius-md)",
+                  color: "#fff",
+                  fontSize: 14,
+                  fontWeight: 600,
+                  padding: "12px 0",
+                  cursor: "pointer",
+                  fontFamily: "inherit",
+                }}
+              >
+                Go to sign in
+              </button>
+
+              <button
+                type="button"
+                onClick={handleResendConfirmation}
+                disabled={resendLoading}
+                style={{
+                  width: "100%",
+                  background: "var(--bg-elevated)",
+                  border: "0.5px solid var(--border-default)",
+                  borderRadius: "var(--radius-md)",
+                  color: "var(--text-primary)",
+                  fontSize: 13,
+                  fontWeight: 500,
+                  padding: "10px 0",
+                  cursor: resendLoading ? "default" : "pointer",
+                  fontFamily: "inherit",
+                }}
+              >
+                {resendLoading ? "Sending..." : "Resend confirmation email"}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setShowVerifyModal(false)}
+                style={{
+                  width: "100%",
+                  background: "transparent",
+                  border: "none",
+                  color: "var(--text-secondary)",
+                  fontSize: 12,
+                  padding: "4px 0 0",
+                  cursor: "pointer",
+                  fontFamily: "inherit",
+                }}
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

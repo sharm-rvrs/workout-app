@@ -229,7 +229,7 @@ export default function OnboardingPage() {
       flexDirection: "column",
       alignItems: "center",
       justifyContent: "flex-start",
-      padding: "40px 16px 60px",
+      padding: "28px 16px 60px",
     }}>
       <div style={{ width: "100%", maxWidth: 520 }}>
 
@@ -287,7 +287,7 @@ export default function OnboardingPage() {
               <p style={{ fontSize: 13, fontWeight: 500, color: "var(--accent)" }}>
                 GainLog AI
               </p>
-              <p style={{ fontSize: 11, color: "var(--text-muted)" }}>
+              <p style={{ fontSize: 11, color: "var(--text-secondary)" }}>
                 Program review · Powered by Groq
               </p>
             </div>
@@ -316,7 +316,8 @@ export default function OnboardingPage() {
           marginBottom: 24,
         }}>
           <p style={{
-            fontSize: 11, color: "var(--text-muted)",
+            fontSize: 11,
+            color: "var(--text-secondary)",
             textTransform: "uppercase", letterSpacing: "0.08em",
             marginBottom: 10,
           }}>
@@ -419,7 +420,7 @@ export default function OnboardingPage() {
           <div style={{
             width: "100%",
             maxWidth: 980,
-            height: "min(85dvh, 860px)",
+            height: "min(90dvh, 860px)",
             background: "var(--bg-surface)",
             border: "0.5px solid var(--border-default)",
             borderRadius: "var(--radius-xl)",

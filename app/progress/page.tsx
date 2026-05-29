@@ -197,18 +197,36 @@ export default function ProgressPage() {
 
   useEffect(() => {
     let cancelled = false
+    const loadingFallbackTimer = window.setTimeout(() => {
+      if (cancelled) return
+      setLogs(getLogs())
+      setIsLoaded(true)
+    }, 3500)
 
     async function loadLogs() {
-      const loaded = await getLogsAsync()
-      if (cancelled) return
-      setLogs(loaded)
-      setIsLoaded(true)
+      try {
+        const loaded = await getLogsAsync()
+        if (cancelled) return
+        setLogs(loaded)
+      } catch {
+        if (cancelled) return
+        setLogs(getLogs())
+      } finally {
+        if (!cancelled) {
+          setIsLoaded(true)
+          window.clearTimeout(loadingFallbackTimer)
+        }
+      }
     }
 
     async function loadProgram() {
-      const mapped = await fetchUserProgramByDay()
-      if (cancelled) return
-      setProgramByDay(mapped)
+      try {
+        const mapped = await fetchUserProgramByDay()
+        if (cancelled) return
+        setProgramByDay(mapped)
+      } catch {
+        // Keep fallback WORKOUT_PLAN map when remote program fails.
+      }
     }
 
     function onLogsUpdated() {
@@ -222,11 +240,39 @@ export default function ProgressPage() {
 
     return () => {
       cancelled = true
+      window.clearTimeout(loadingFallbackTimer)
       window.removeEventListener("workout-logs-updated", onLogsUpdated)
     }
   }, [])
 
-  if (!isLoaded) return null
+  if (!isLoaded) {
+    return (
+      <div style={{ paddingTop: 24, paddingBottom: 8 }}>
+        <div style={{ width: 120, height: 28, borderRadius: 6, background: "var(--bg-elevated)", marginBottom: 16 }} />
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 10, marginBottom: 16 }}>
+          {Array.from({ length: 3 }).map((_, i) => (
+            <div
+              key={i}
+              style={{
+                height: 84,
+                background: "var(--bg-surface)",
+                border: "0.5px solid var(--border-subtle)",
+                borderRadius: "var(--radius-md)",
+              }}
+            />
+          ))}
+        </div>
+        <div
+          style={{
+            height: 320,
+            background: "var(--bg-surface)",
+            border: "0.5px solid var(--border-subtle)",
+            borderRadius: "var(--radius-lg)",
+          }}
+        />
+      </div>
+    )
+  }
 
   const logMap = new Map(logs.map((l) => [l.date, l]))
   const streak = computeStreak(logs)
@@ -272,14 +318,14 @@ export default function ProgressPage() {
       <h1 style={{ fontSize: 22, fontWeight: 500, color: "var(--text-primary)", marginBottom: 16 }}>Progress</h1>
 
       {/* Stats */}
-      <div style={{ display: "flex", gap: 10, marginBottom: 20 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(108px, 1fr))", gap: 10, marginBottom: 20 }}>
         {[
           { icon: <IcoZap size={14} stroke="var(--accent)" />, label: "Streak", value: streak, sub: "days" },
           { icon: <IcoCalendarSimple size={14} stroke="var(--text-muted)" />, label: "Sessions", value: logs.length, sub: "total" },
           { icon: <IcoTrophy size={14} stroke="var(--text-muted)" />, label: "PRs", value: pbs.length, sub: "exercises" },
         ].map(({ icon, label, value, sub }) => (
           <div key={label} style={{ flex: 1, background: "var(--bg-surface)", border: "0.5px solid var(--border-subtle)", borderRadius: "var(--radius-md)", padding: "12px 10px" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 4, marginBottom: 4 }}>{icon}<span style={{ fontSize: 10, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.08em" }}>{label}</span></div>
+            <div style={{ display: "flex", alignItems: "center", gap: 4, marginBottom: 4 }}>{icon}<span style={{ fontSize: 10, color: "var(--text-secondary)", textTransform: "uppercase", letterSpacing: "0.08em" }}>{label}</span></div>
             <span style={{ fontSize: 24, fontWeight: 600, color: "var(--text-primary)", display: "block", lineHeight: 1 }}>{value}</span>
             <span style={{ fontSize: 11, color: "var(--text-secondary)" }}>{sub}</span>
           </div>
@@ -287,12 +333,12 @@ export default function ProgressPage() {
       </div>
 
       {/* Tabs */}
-      <div style={{ display: "flex", background: "var(--bg-surface)", border: "0.5px solid var(--border-subtle)", borderRadius: "var(--radius-md)", padding: 4, marginBottom: 20, gap: 4 }}>
+      <div style={{ display: "flex", background: "var(--bg-surface)", border: "0.5px solid var(--border-subtle)", borderRadius: "var(--radius-md)", padding: 4, marginBottom: 20, gap: 4, overflowX: "auto", scrollbarWidth: "none" }}>
         {([["calendar", "Calendar"], ["history", "History"], ["pbs", "Personal Bests"]] as const).map(([tab, label]) => {
           const active = activeTab === tab
           return (
             <button key={tab} onClick={() => setActiveTab(tab)}
-              style={{ flex: 1, background: active ? "var(--bg-elevated)" : "transparent", border: active ? "0.5px solid var(--border-default)" : "none", borderRadius: "var(--radius-sm)", color: active ? "var(--text-primary)" : "var(--text-muted)", fontSize: 12, fontWeight: active ? 500 : 400, padding: "8px 4px", cursor: "pointer", fontFamily: "inherit", whiteSpace: "nowrap" }}>
+              style={{ flex: 1, minWidth: 100, background: active ? "var(--bg-elevated)" : "transparent", border: active ? "0.5px solid var(--border-default)" : "none", borderRadius: "var(--radius-sm)", color: active ? "var(--text-primary)" : "var(--text-secondary)", fontSize: 12, fontWeight: active ? 500 : 400, padding: "8px 8px", cursor: "pointer", fontFamily: "inherit", whiteSpace: "nowrap" }}>
               {label}
             </button>
           )
@@ -310,7 +356,7 @@ export default function ProgressPage() {
 
           <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 4, marginBottom: 6 }}>
             {WEEK_DAYS.map((d) => (
-              <div key={d} style={{ textAlign: "center", fontSize: 10, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.06em", paddingBottom: 4 }}>{d}</div>
+              <div key={d} style={{ textAlign: "center", fontSize: 10, color: "var(--text-secondary)", textTransform: "uppercase", letterSpacing: "0.06em", paddingBottom: 4 }}>{d}</div>
             ))}
           </div>
 
@@ -346,7 +392,7 @@ export default function ProgressPage() {
             ].map(({ color, border, label }) => (
               <div key={label} style={{ display: "flex", alignItems: "center", gap: 5 }}>
                 <div style={{ width: 12, height: 12, background: color, border: `0.5px solid ${border}`, borderRadius: 3 }} />
-                <span style={{ fontSize: 11, color: "var(--text-muted)" }}>{label}</span>
+                <span style={{ fontSize: 11, color: "var(--text-secondary)" }}>{label}</span>
               </div>
             ))}
           </div>
@@ -369,11 +415,11 @@ export default function ProgressPage() {
                     {workout.label}
                     {log.dayOverride && <span style={{ fontSize: 10, color: "var(--accent)", background: "var(--accent-dim)", borderRadius: 20, padding: "1px 7px", marginLeft: 8 }}>Swapped</span>}
                   </p>
-                  <p style={{ fontSize: 12, color: "var(--text-muted)" }}>{formatDateFull(log.date)}</p>
+                  <p style={{ fontSize: 12, color: "var(--text-secondary)" }}>{formatDateFull(log.date)}</p>
                 </div>
                 <div style={{ textAlign: "right", flexShrink: 0 }}>
                   <p style={{ fontSize: 13, fontWeight: 500, color: "var(--text-primary)" }}>{filledEx.length} ex</p>
-                  <p style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 2 }}>{totalSets} sets</p>
+                  <p style={{ fontSize: 11, color: "var(--text-secondary)", marginTop: 2 }}>{totalSets} sets</p>
                 </div>
                 <IcoChevRight />
               </button>
@@ -408,11 +454,11 @@ export default function ProgressPage() {
               </div>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <p style={{ fontSize: 13, fontWeight: 500, color: "var(--text-primary)", marginBottom: 2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{pb.exerciseName}</p>
-                <p style={{ fontSize: 11, color: "var(--text-muted)" }}>{formatDateShort(pb.date)} · {(programByDay[pb.dayKey] ?? WORKOUT_PLAN[pb.dayKey]).shortLabel}</p>
+                <p style={{ fontSize: 11, color: "var(--text-secondary)" }}>{formatDateShort(pb.date)} · {(programByDay[pb.dayKey] ?? WORKOUT_PLAN[pb.dayKey]).shortLabel}</p>
               </div>
               <div style={{ textAlign: "right", flexShrink: 0 }}>
                 <p style={{ fontSize: 16, fontWeight: 600, color: i === 0 ? "var(--accent)" : "var(--text-primary)" }}>{pb.weightKg} kg</p>
-                {pb.reps > 0 && <p style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 1 }}>× {pb.reps} reps</p>}
+                {pb.reps > 0 && <p style={{ fontSize: 11, color: "var(--text-secondary)", marginTop: 1 }}>× {pb.reps} reps</p>}
               </div>
             </div>
           ))}

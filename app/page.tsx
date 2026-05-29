@@ -283,7 +283,7 @@ export default function HomePage() {
   return (
     <div style={{ paddingTop: 24, paddingBottom: 8 }}>
       <div style={{ marginBottom: 18 }}>
-        <p style={{ fontSize: 12, color: "var(--text-muted)", marginBottom: 4 }}>{getGreetingPH()}</p>
+        <p style={{ fontSize: 12, color: "var(--text-secondary)", marginBottom: 4 }}>{getGreetingPH()}</p>
         <h1 style={{ fontSize: 22, fontWeight: 500, color: "var(--text-primary)" }}>{formatDateFull(today)}</h1>
       </div>
 
@@ -478,7 +478,7 @@ export default function HomePage() {
         <p
           style={{
             fontSize: 10,
-            color: "var(--text-muted)",
+            color: "var(--text-secondary)",
             textTransform: "uppercase",
             letterSpacing: "0.1em",
             marginBottom: 10,
@@ -535,7 +535,7 @@ export default function HomePage() {
         </div>
       </div>
 
-      <div style={{ display: "flex", gap: 10, marginBottom: 12 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 10, marginBottom: 12 }}>
         {[
           {
             icon: (
@@ -585,7 +585,7 @@ export default function HomePage() {
           >
             <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
               {icon}
-              <span style={{ fontSize: 10, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.08em" }}>{label}</span>
+              <span style={{ fontSize: 10, color: "var(--text-secondary)", textTransform: "uppercase", letterSpacing: "0.08em" }}>{label}</span>
             </div>
             <span style={{ fontSize: 26, fontWeight: 600, color: "var(--text-primary)", lineHeight: 1 }}>{value}</span>
             <span style={{ fontSize: 11, color: "var(--text-secondary)" }}>{sub}</span>
@@ -604,7 +604,7 @@ export default function HomePage() {
         <p
           style={{
             fontSize: 10,
-            color: "var(--text-muted)",
+            color: "var(--text-secondary)",
             textTransform: "uppercase",
             letterSpacing: "0.1em",
             marginBottom: 12,
@@ -613,15 +613,15 @@ export default function HomePage() {
           Daily nutrition targets
         </p>
         {nutritionDisplay.rows.map(({ label, value }) => (
-          <div key={label} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 9 }}>
+          <div key={label} style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10, marginBottom: 9 }}>
             <span style={{ fontSize: 13, color: "var(--text-secondary)" }}>{label}</span>
-            <span style={{ fontSize: 13, fontWeight: 500, color: "var(--text-primary)" }}>{value}</span>
+            <span style={{ fontSize: 13, fontWeight: 500, color: "var(--text-primary)", textAlign: "right" }}>{value}</span>
           </div>
         ))}
         <p
           style={{
             fontSize: 11,
-            color: "var(--text-muted)",
+            color: "var(--text-secondary)",
             lineHeight: 1.6,
             borderTop: "0.5px solid var(--border-subtle)",
             paddingTop: 10,

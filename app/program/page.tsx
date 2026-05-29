@@ -107,7 +107,7 @@ const INPUT: React.CSSProperties = {
 
 const LABEL: React.CSSProperties = {
   fontSize: 11,
-  color: "var(--text-muted)",
+  color: "var(--text-secondary)",
   fontWeight: 500,
   marginBottom: 4,
   display: "block",
@@ -519,7 +519,7 @@ function DayCard({
             )}
           </div>
           {!day.is_rest && (
-            <p style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 1 }}>
+            <p style={{ fontSize: 11, color: "var(--text-secondary)", marginTop: 1 }}>
               {visibleExercises.length} exercise{visibleExercises.length !== 1 ? "s" : ""}
               {day.duration ? ` · ${day.duration}` : ""}
             </p>
@@ -627,7 +627,7 @@ function DayCard({
               width: "100%", background: "none",
               border: "0.5px dashed var(--border-default)",
               borderRadius: "var(--radius-md)",
-              color: "var(--text-muted)", fontSize: 12,
+              color: "var(--text-secondary)", fontSize: 12,
               padding: "10px 0", cursor: "pointer",
               display: "flex", alignItems: "center",
               justifyContent: "center", gap: 5,
@@ -887,7 +887,7 @@ export default function ProgramPage() {
     <div style={{ paddingTop: 24, paddingBottom: 8 }}>
 
       {/* Header */}
-      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 20 }}>
+      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12, flexWrap: "wrap", marginBottom: 20 }}>
         <div>
           <h1 style={{ fontSize: 22, fontWeight: 500, color: "var(--text-primary)", marginBottom: 4 }}>
             My Program
@@ -909,6 +909,7 @@ export default function ProgramPage() {
             fontSize: 13, fontWeight: 500, padding: "9px 16px",
             cursor: hasDirtyChanges && !saving ? "pointer" : "default",
             fontFamily: "inherit", flexShrink: 0,
+            minHeight: 40,
             display: "flex", alignItems: "center", gap: 6,
             transition: "background 0.15s",
           }}>
@@ -941,7 +942,7 @@ export default function ProgramPage() {
         marginBottom: 20,
       }}>
         <span style={{ color: "var(--text-muted)", flexShrink: 0, marginTop: 1 }}><IcoInfo /></span>
-        <p style={{ fontSize: 12, color: "var(--text-muted)", lineHeight: 1.6 }}>
+        <p style={{ fontSize: 12, color: "var(--text-secondary)", lineHeight: 1.6 }}>
           Tap a day to expand it. Click the edit icon to rename a day or change its type. Add exercises with the &quot;+&quot; button. Changes are local until you tap <strong>Save changes</strong>.
         </p>
       </div>
@@ -966,8 +967,10 @@ export default function ProgramPage() {
           left: "50%", transform: "translateX(-50%)",
           background: "var(--bg-elevated)",
           border: "0.5px solid var(--accent-border)",
-          borderRadius: 30, padding: "10px 20px",
-          display: "flex", alignItems: "center", gap: 12,
+          borderRadius: 30, padding: "10px 14px",
+          width: "calc(100% - 32px)",
+          maxWidth: 460,
+          display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12,
           boxShadow: "0 4px 24px rgba(0,0,0,0.5)",
           zIndex: 40,
         }}>

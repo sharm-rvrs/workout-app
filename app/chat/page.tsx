@@ -59,7 +59,7 @@ function MessageBubble({ message }: { message: Message }) {
         {isUser ? <IcoUser /> : <IcoBot />}
       </div>
       <div style={{
-        maxWidth: "75%",
+        maxWidth: "min(82%, 560px)",
         background: isUser ? "var(--accent)" : "var(--bg-surface)",
         border: isUser ? "none" : `0.5px solid ${message.error ? "rgba(220,60,60,0.3)" : "var(--border-subtle)"}`,
         borderRadius: isUser
@@ -204,7 +204,7 @@ export default function ChatPage() {
 
         {!isEmpty && (
           <button onClick={clearChat} title="Clear chat"
-            style={{ background: "none", border: "0.5px solid var(--border-subtle)", borderRadius: "var(--radius-sm)", color: "var(--text-muted)", padding: "6px 10px", cursor: "pointer", display: "flex", alignItems: "center", gap: 5, fontSize: 12, fontFamily: "inherit" }}>
+            style={{ background: "none", border: "0.5px solid var(--border-subtle)", borderRadius: "var(--radius-sm)", color: "var(--text-secondary)", padding: "6px 10px", cursor: "pointer", display: "flex", alignItems: "center", gap: 5, fontSize: 12, fontFamily: "inherit" }}>
             <IcoTrash /> Clear
           </button>
         )}
@@ -274,7 +274,7 @@ export default function ChatPage() {
         <div style={{ flexShrink: 0, paddingBottom: 12 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 5, marginBottom: 8 }}>
             <IcoSparkle />
-            <span style={{ fontSize: 10, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.08em" }}>Try asking</span>
+            <span style={{ fontSize: 10, color: "var(--text-secondary)", textTransform: "uppercase", letterSpacing: "0.08em" }}>Try asking</span>
           </div>
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
             {SUGGESTIONS.map((s) => (
@@ -303,12 +303,12 @@ export default function ChatPage() {
               rows={1} disabled={isLoading}
               style={{ flex: 1, background: "none", border: "none", color: "var(--text-primary)", fontSize: 14, fontFamily: "inherit", resize: "none", outline: "none", lineHeight: 1.5, maxHeight: 120, overflowY: "auto" }} />
             <button onClick={() => sendMessage(input)} disabled={!canSend} aria-label="Send"
-              style={{ width: 34, height: 34, borderRadius: "50%", background: canSend ? "var(--accent)" : "var(--bg-elevated)", border: "none", cursor: canSend ? "pointer" : "default", display: "flex", alignItems: "center", justifyContent: "center", color: canSend ? "#fff" : "var(--text-muted)", flexShrink: 0, transition: "background 0.15s, color 0.15s" }}>
+              style={{ width: 38, height: 38, borderRadius: "50%", background: canSend ? "var(--accent)" : "var(--bg-elevated)", border: "none", cursor: canSend ? "pointer" : "default", display: "flex", alignItems: "center", justifyContent: "center", color: canSend ? "#fff" : "var(--text-muted)", flexShrink: 0, transition: "background 0.15s, color 0.15s" }}>
               <IcoSend />
             </button>
           </div>
           <div style={{ display: "flex", justifyContent: "space-between", marginTop: 6 }}>
-            <p style={{ fontSize: 10, color: "var(--text-muted)" }}>Enter to send · Shift+Enter for new line</p>
+            <p style={{ fontSize: 10, color: "var(--text-secondary)" }}>Enter to send · Shift+Enter for new line</p>
             {charCount > 0 && (
               <p style={{ fontSize: 10, color: isOverLimit ? "#f87171" : "var(--text-muted)", fontWeight: isOverLimit ? 500 : 400 }}>
                 {charCount}/{MAX_CHARS}

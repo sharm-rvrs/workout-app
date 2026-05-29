@@ -87,6 +87,11 @@ function LogPageInner() {
 
   useEffect(() => {
     let cancelled = false
+    const loadingFallbackTimer = window.setTimeout(() => {
+      if (!cancelled) {
+        setProgramLoading(false)
+      }
+    }, 3500)
 
     async function loadProgram() {
       try {
@@ -95,6 +100,7 @@ function LogPageInner() {
           setProgramByDay(mapped)
         }
       } finally {
+        window.clearTimeout(loadingFallbackTimer)
         if (!cancelled) setProgramLoading(false)
       }
     }
@@ -102,6 +108,7 @@ function LogPageInner() {
     void loadProgram()
     return () => {
       cancelled = true
+      window.clearTimeout(loadingFallbackTimer)
     }
   }, [])
 
@@ -255,7 +262,50 @@ function LogPageInner() {
     }
   }
 
-  if (programLoading) return null
+  if (programLoading) {
+    return (
+      <div style={{ paddingTop: 14, paddingBottom: 8 }}>
+        <div style={{ marginBottom: 16 }}>
+          <div style={{ width: 132, height: 28, borderRadius: 6, background: "var(--bg-elevated)", marginBottom: 12 }} />
+          <div
+            style={{
+              background: "var(--bg-surface)",
+              border: "0.5px solid var(--border-default)",
+              borderRadius: "var(--radius-md)",
+              padding: "10px 14px",
+              height: 42,
+            }}
+          />
+        </div>
+
+        <div
+          style={{
+            background: "var(--bg-surface)",
+            border: "0.5px solid var(--border-subtle)",
+            borderRadius: "var(--radius-md)",
+            padding: "12px 14px",
+            marginBottom: 16,
+          }}
+        >
+          <p style={{ fontSize: 13, color: "var(--text-secondary)" }}>Loading your workout…</p>
+        </div>
+
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          {Array.from({ length: 3 }).map((_, i) => (
+            <div
+              key={i}
+              style={{
+                height: 88,
+                background: "var(--bg-surface)",
+                border: "0.5px solid var(--border-subtle)",
+                borderRadius: "var(--radius-lg)",
+              }}
+            />
+          ))}
+        </div>
+      </div>
+    )
+  }
 
   const currentStateKey = buildLogDraftKey(date, effectiveDayKey, skippedIds, exerciseLogs)
   const hasUnsavedChanges = initialStateKey !== null && initialStateKey !== currentStateKey
@@ -520,40 +570,29 @@ function LogPageInner() {
             )}
           </div>
 
-          <button
-            onClick={handleSave}
-            style={{
-              marginTop: 20,
-              width: "100%",
-              background: "var(--accent)",
-              border: "none",
-              borderRadius: "var(--radius-md)",
-              color: "#fff",
-              fontSize: 15,
-              fontWeight: 500,
-              padding: "14px 0",
-              cursor: "pointer",
-              fontFamily: "inherit",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              gap: 8,
-            }}
-          >
-            <IcoSave /> Save workout
-          </button>
-
-          {hasUnsavedChanges && (
-            <p
+          {!showFloatingSaveBar && (
+            <button
+              onClick={handleSave}
               style={{
-                marginTop: 8,
-                fontSize: 11,
-                color: "var(--accent)",
-                textAlign: "center",
+                marginTop: 20,
+                width: "100%",
+                background: "var(--accent)",
+                border: "none",
+                borderRadius: "var(--radius-md)",
+                color: "#fff",
+                fontSize: 15,
+                fontWeight: 500,
+                padding: "14px 0",
+                cursor: "pointer",
+                fontFamily: "inherit",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: 8,
               }}
             >
-              Unsaved changes
-            </p>
+              <IcoSave /> Save workout
+            </button>
           )}
         </>
       )}
