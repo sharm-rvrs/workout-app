@@ -5,9 +5,7 @@ import {
   getLogs,
   getLogsAsync,
   savelog,
-  savelogAsync,
   deleteLog,
-  deleteLogAsync,
   WORKOUT_PLAN,
   type WorkoutLog,
   type ExerciseLog,
@@ -64,27 +62,11 @@ export function useWorkoutLog() {
   const save = useCallback(async (log: WorkoutLog) => {
     savelog(log) // optimistic local state/cache update
     setLogs(getLogs())
-    try {
-      await savelogAsync(log)
-    } catch (error) {
-      if (isLegacySchemaSaveError(error)) {
-        // Keep optimistic local state when legacy schemas reject optional columns.
-        return
-      }
-      const latest = await getLogsAsync(true)
-      setLogs(latest)
-    }
   }, [])
 
   const remove = useCallback(async (id: string) => {
     deleteLog(id) // optimistic local state/cache update
     setLogs(getLogs())
-    try {
-      await deleteLogAsync(id)
-    } catch {
-      const latest = await getLogsAsync(true)
-      setLogs(latest)
-    }
   }, [])
 
   const getByDate = useCallback(

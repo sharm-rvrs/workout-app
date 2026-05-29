@@ -77,11 +77,20 @@ function LogPageInner() {
 
     const existing = getLogByDate(date)
     if (existing) {
+      const existingEffectiveDayKey = existing.dayOverride ?? existing.dayKey
+      const existingDay = programByDay[existingEffectiveDayKey] ?? WORKOUT_PLAN[existingEffectiveDayKey]
+      const skipped = new Set(existing.skippedExerciseIds ?? [])
+      const recoveredDefaults = createExerciseLogsFromWorkoutDay(existingDay).filter(
+        (exercise) => !skipped.has(exercise.exerciseId)
+      )
+      const resolvedExercises =
+        existing.exercises.length > 0 ? existing.exercises : recoveredDefaults
+
       queueMicrotask(() => {
         setLogId(existing.id)
-        setEffectiveDayKey(existing.dayOverride ?? existing.dayKey)
+        setEffectiveDayKey(existingEffectiveDayKey)
         setSkippedIds(new Set(existing.skippedExerciseIds ?? []))
-        setExerciseLogs(existing.exercises)
+        setExerciseLogs(resolvedExercises)
       })
     } else {
       const key = getDayKeyFromStr(date)
@@ -213,9 +222,18 @@ function LogPageInner() {
   const hasAnyLogs = getLogs().length > 0
 
   return (
-    <div style={{ paddingTop: 24, paddingBottom: 8 }}>
-      <div style={{ marginBottom: 20 }}>
-        <h1 style={{ fontSize: 22, fontWeight: 500, color: "var(--text-primary)", marginBottom: 14 }}>
+    <div style={{ paddingTop: 10, paddingBottom: 8 }}>
+      <div style={{ marginBottom: 18 }}>
+        <h1
+          style={{
+            fontSize: "clamp(1.55rem, 6vw, 1.95rem)",
+            lineHeight: 1.15,
+            letterSpacing: "-0.01em",
+            fontWeight: 600,
+            color: "var(--text-primary)",
+            marginBottom: 12,
+          }}
+        >
           Log Workout
         </h1>
         <div

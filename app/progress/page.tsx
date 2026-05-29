@@ -3,7 +3,15 @@
 import { useState, useEffect } from "react"
 import Link from "next/link"
 import type { CalendarDay, PersonalBest } from "@/lib/types"
-import { getLogs, getLogsAsync, WORKOUT_PLAN, type WorkoutLog } from "@/lib/workout-data"
+import {
+  getLogs,
+  getLogsAsync,
+  WORKOUT_PLAN,
+  type DayKey,
+  type WorkoutDay,
+  type WorkoutLog,
+} from "@/lib/workout-data"
+import { fetchUserProgramByDay } from "@/lib/program-days"
 import { todayStrPH, formatDateFull, formatDateShort } from "@/lib/dates"
 import WorkoutIcon, { DayBadge } from "@/components/WorkoutIcon"
 import {
@@ -16,6 +24,14 @@ import {
   IcoTrophy,
   IcoZap,
 } from "@/components/AppIcons"
+
+function getWorkoutForLog(
+  log: WorkoutLog,
+  programByDay: Partial<Record<DayKey, WorkoutDay>>
+): WorkoutDay {
+  const effectiveDayKey = log.dayOverride ?? log.dayKey
+  return programByDay[effectiveDayKey] ?? WORKOUT_PLAN[effectiveDayKey]
+}
 
 function computeStreak(logs: WorkoutLog[]): number {
   if (logs.length === 0) return 0
@@ -79,8 +95,16 @@ function buildCalendarDays(year: number, month: number, logMap: Map<string, Work
   return days
 }
 
-function SessionDrawer({ log, onClose }: { log: WorkoutLog; onClose: () => void }) {
-  const workout = WORKOUT_PLAN[log.dayOverride ?? log.dayKey]
+function SessionDrawer({
+  log,
+  onClose,
+  programByDay,
+}: {
+  log: WorkoutLog
+  onClose: () => void
+  programByDay: Partial<Record<DayKey, WorkoutDay>>
+}) {
+  const workout = getWorkoutForLog(log, programByDay)
   return (
     <>
       <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 60, backdropFilter: "blur(4px)" }} />
@@ -164,6 +188,7 @@ const WEEK_DAYS = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"]
 export default function ProgressPage() {
   const [logs, setLogs] = useState<WorkoutLog[]>([])
   const [isLoaded, setIsLoaded] = useState(false)
+  const [programByDay, setProgramByDay] = useState<Partial<Record<DayKey, WorkoutDay>>>({})
   const [selectedLog, setSelectedLog] = useState<WorkoutLog | null>(null)
   const [activeTab, setActiveTab] = useState<"calendar" | "history" | "pbs">("calendar")
   const now = new Date()
@@ -180,12 +205,19 @@ export default function ProgressPage() {
       setIsLoaded(true)
     }
 
+    async function loadProgram() {
+      const mapped = await fetchUserProgramByDay()
+      if (cancelled) return
+      setProgramByDay(mapped)
+    }
+
     function onLogsUpdated() {
       if (cancelled) return
       setLogs(getLogs())
     }
 
     void loadLogs()
+    void loadProgram()
     window.addEventListener("workout-logs-updated", onLogsUpdated)
 
     return () => {
@@ -299,7 +331,7 @@ export default function ProgressPage() {
                     {dayOfMonth}
                   </span>
                   {hasLog && effectiveKey && (
-                    <WorkoutIcon icon={WORKOUT_PLAN[effectiveKey].icon} size={10}
+                    <WorkoutIcon icon={(programByDay[effectiveKey] ?? WORKOUT_PLAN[effectiveKey]).icon} size={10}
                       color={isToday ? "var(--accent)" : "var(--text-muted)"} strokeWidth={2} />
                   )}
                 </button>
@@ -325,7 +357,7 @@ export default function ProgressPage() {
       {activeTab === "history" && (
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
           {history.map((log) => {
-            const workout = WORKOUT_PLAN[log.dayOverride ?? log.dayKey]
+            const workout = getWorkoutForLog(log, programByDay)
             const filledEx = log.exercises.filter((ex) => ex.sets.some((s) => s.weightKg || s.reps || s.durationSeconds))
             const totalSets = filledEx.reduce((acc, ex) => acc + ex.sets.filter((s) => s.weightKg || s.reps || s.durationSeconds).length, 0)
             return (
@@ -376,7 +408,7 @@ export default function ProgressPage() {
               </div>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <p style={{ fontSize: 13, fontWeight: 500, color: "var(--text-primary)", marginBottom: 2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{pb.exerciseName}</p>
-                <p style={{ fontSize: 11, color: "var(--text-muted)" }}>{formatDateShort(pb.date)} · {WORKOUT_PLAN[pb.dayKey].shortLabel}</p>
+                <p style={{ fontSize: 11, color: "var(--text-muted)" }}>{formatDateShort(pb.date)} · {(programByDay[pb.dayKey] ?? WORKOUT_PLAN[pb.dayKey]).shortLabel}</p>
               </div>
               <div style={{ textAlign: "right", flexShrink: 0 }}>
                 <p style={{ fontSize: 16, fontWeight: 600, color: i === 0 ? "var(--accent)" : "var(--text-primary)" }}>{pb.weightKg} kg</p>
@@ -387,7 +419,13 @@ export default function ProgressPage() {
         </div>
       )}
 
-      {selectedLog && <SessionDrawer log={selectedLog} onClose={() => setSelectedLog(null)} />}
+      {selectedLog && (
+        <SessionDrawer
+          log={selectedLog}
+          onClose={() => setSelectedLog(null)}
+          programByDay={programByDay}
+        />
+      )}
     </div>
   )
 }

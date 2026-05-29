@@ -598,8 +598,15 @@ export function getQuickAddExercises(limit = 8, category?: ExerciseCategory): Ex
 
 const STORAGE_KEY = "workout_logs_v2"
 
+type SchemaSupportState = {
+  workoutLogsSupportsProgramColumns: boolean | null
+  workoutDetailsSyncSupported: boolean | null
+  workoutLogsSupportsFullRead: boolean | null
+  exerciseLogsSupportsExerciseId: boolean | null
+}
+
 type SetEntryRow = {
-  set_number: number
+  set_number?: number
   weight_kg: number | null
   reps: number | null
   duration_seconds: number | null
@@ -608,7 +615,7 @@ type SetEntryRow = {
 type ExerciseLogRow = {
   id: string
   workout_log_id: string
-  exercise_id: string
+  exercise_id?: string
   exercise_name: string
   is_custom: boolean | null
   is_timed: boolean | null
@@ -633,7 +640,16 @@ let hydrated = false
 let hydratingPromise: Promise<WorkoutLog[]> | null = null
 let workoutLogsSupportsProgramColumns: boolean | null = null
 let workoutDetailsSyncSupported: boolean | null = null
+let workoutLogsSupportsFullRead: boolean | null = null
+let exerciseLogsSupportsExerciseId: boolean | null = null
 let cachedUserId: string | null = null
+
+function resetSchemaSupportState() {
+  workoutLogsSupportsProgramColumns = null
+  workoutDetailsSyncSupported = null
+  workoutLogsSupportsFullRead = null
+  exerciseLogsSupportsExerciseId = null
+}
 
 function emitLogsUpdated() {
   if (typeof window === "undefined") return
@@ -745,21 +761,64 @@ function normalizeLogs(logs: WorkoutLog[]): WorkoutLog[] {
     .sort((a, b) => b.date.localeCompare(a.date))
 }
 
+function mergeServerLogsWithLocalFallback(serverLogs: WorkoutLog[], localLogs: WorkoutLog[]): WorkoutLog[] {
+  if (localLogs.length === 0) return serverLogs
+
+  const localById = new Map(localLogs.map((log) => [log.id, log]))
+  const localByDateDay = new Map(localLogs.map((log) => [`${log.date}:${log.dayKey}`, log]))
+  const merged: WorkoutLog[] = []
+
+  for (const serverLog of serverLogs) {
+    const localLog = localById.get(serverLog.id) ?? localByDateDay.get(`${serverLog.date}:${serverLog.dayKey}`)
+    if (!localLog) {
+      merged.push(serverLog)
+      continue
+    }
+
+    const serverHasExercises = serverLog.exercises.length > 0
+    const localHasExercises = localLog.exercises.length > 0
+
+    if (!serverHasExercises && localHasExercises) {
+      merged.push({
+        ...serverLog,
+        dayOverride: serverLog.dayOverride ?? localLog.dayOverride,
+        skippedExerciseIds:
+          serverLog.skippedExerciseIds.length > 0 ? serverLog.skippedExerciseIds : localLog.skippedExerciseIds,
+        exercises: localLog.exercises,
+      })
+      continue
+    }
+
+    merged.push(serverLog)
+  }
+
+  const mergedIds = new Set(merged.map((log) => log.id))
+  for (const localLog of localLogs) {
+    if (!mergedIds.has(localLog.id)) {
+      merged.push(localLog)
+    }
+  }
+
+  return merged
+}
+
 function mapRowToLog(row: WorkoutLogRow): WorkoutLog {
   const exercises = (row.exercise_logs ?? [])
     .slice()
     .sort((a, b) => (a.order_index ?? 0) - (b.order_index ?? 0))
     .map((exercise) => ({
-      exerciseId: exercise.exercise_id,
+      exerciseId:
+        exercise.exercise_id ??
+        `legacy-name-${normalizeExerciseText(exercise.exercise_name) || exercise.id}`,
       exerciseName: exercise.exercise_name,
       isCustom: !!exercise.is_custom,
       isTimed: !!exercise.is_timed,
       notes: exercise.notes ?? "",
       sets: (exercise.set_entries ?? [])
         .slice()
-        .sort((a, b) => a.set_number - b.set_number)
-        .map((setRow) => ({
-          setNumber: setRow.set_number,
+        .sort((a, b) => (a.set_number ?? Number.MAX_SAFE_INTEGER) - (b.set_number ?? Number.MAX_SAFE_INTEGER))
+        .map((setRow, index) => ({
+          setNumber: setRow.set_number ?? index + 1,
           weightKg: setRow.weight_kg ?? undefined,
           reps: setRow.reps ?? undefined,
           durationSeconds: setRow.duration_seconds ?? undefined,
@@ -779,6 +838,54 @@ function mapRowToLog(row: WorkoutLogRow): WorkoutLog {
 
 function getStorageKeyForUser(userId: string | null): string {
   return userId ? `${STORAGE_KEY}:${userId}` : `${STORAGE_KEY}:anon`
+}
+
+function getSchemaSupportKeyForUser(userId: string | null): string {
+  return userId ? `${STORAGE_KEY}:schema:${userId}` : `${STORAGE_KEY}:schema:anon`
+}
+
+function persistSchemaSupportState(userId?: string | null) {
+  if (typeof window === "undefined") return
+  try {
+    const resolvedUserId = userId ?? cachedUserId
+    if (!resolvedUserId) return
+
+    const storageKey = getSchemaSupportKeyForUser(resolvedUserId)
+    const state: SchemaSupportState = {
+      workoutLogsSupportsProgramColumns,
+      workoutDetailsSyncSupported,
+      workoutLogsSupportsFullRead,
+      exerciseLogsSupportsExerciseId,
+    }
+    localStorage.setItem(storageKey, JSON.stringify(state))
+  } catch {
+    // Ignore schema capability persistence failures.
+  }
+}
+
+function loadSchemaSupportState(userId?: string | null) {
+  if (typeof window === "undefined") return
+
+  const readBooleanOrNull = (value: unknown): boolean | null =>
+    typeof value === "boolean" ? value : null
+
+  try {
+    const resolvedUserId = userId ?? cachedUserId
+    resetSchemaSupportState()
+    if (!resolvedUserId) return
+
+    const storageKey = getSchemaSupportKeyForUser(resolvedUserId)
+    const raw = localStorage.getItem(storageKey)
+    if (!raw) return
+
+    const parsed = JSON.parse(raw) as Partial<SchemaSupportState>
+    workoutLogsSupportsProgramColumns = readBooleanOrNull(parsed.workoutLogsSupportsProgramColumns)
+    workoutDetailsSyncSupported = readBooleanOrNull(parsed.workoutDetailsSyncSupported)
+    workoutLogsSupportsFullRead = readBooleanOrNull(parsed.workoutLogsSupportsFullRead)
+    exerciseLogsSupportsExerciseId = readBooleanOrNull(parsed.exerciseLogsSupportsExerciseId)
+  } catch {
+    resetSchemaSupportState()
+  }
 }
 
 function persistCacheToLocalStorage(userId?: string | null) {
@@ -825,6 +932,7 @@ async function hydrateLogsFromSupabase(force = false): Promise<WorkoutLog[]> {
         logsCache = []
         hydrated = false
         cachedUserId = currentUserId
+        loadSchemaSupportState(currentUserId)
         loadLocalCache(currentUserId)
       }
 
@@ -836,41 +944,54 @@ async function hydrateLogsFromSupabase(force = false): Promise<WorkoutLog[]> {
         return logsCache
       }
 
-      const fullSelect = await supabase
-        .from("workout_logs")
-        .select(`
-          id,
-          user_id,
-          date,
-          day_key,
-          day_override,
-          skipped_exercise_ids,
-          completed_at,
-          exercise_logs (
-            id,
-            workout_log_id,
-            exercise_id,
-            exercise_name,
-            is_custom,
-            is_timed,
-            notes,
-            order_index,
-            set_entries (
-              set_number,
-              weight_kg,
-              reps,
-              duration_seconds
-            )
-          )
-        `)
-        .eq("user_id", currentUserId)
-        .order("date", { ascending: false })
-
       let rows: WorkoutLogRow[] = []
 
-      if (!fullSelect.error) {
-        rows = (fullSelect.data ?? []) as WorkoutLogRow[]
-      } else if (isMissingColumnError(fullSelect.error)) {
+      if (workoutLogsSupportsFullRead !== false) {
+        const fullSelect = await supabase
+          .from("workout_logs")
+          .select(`
+            id,
+            user_id,
+            date,
+            day_key,
+            day_override,
+            skipped_exercise_ids,
+            completed_at,
+            exercise_logs (
+              id,
+              workout_log_id,
+              exercise_id,
+              exercise_name,
+              is_custom,
+              is_timed,
+              notes,
+              order_index,
+              set_entries (
+                set_number,
+                weight_kg,
+                reps,
+                duration_seconds
+              )
+            )
+          `)
+          .eq("user_id", currentUserId)
+          .order("date", { ascending: false })
+
+        if (!fullSelect.error) {
+          workoutLogsSupportsFullRead = true
+          persistSchemaSupportState(currentUserId)
+          rows = (fullSelect.data ?? []) as WorkoutLogRow[]
+        } else if (isMissingColumnError(fullSelect.error)) {
+          workoutLogsSupportsFullRead = false
+          // If read path cannot resolve day/program columns, skip writing them too.
+          workoutLogsSupportsProgramColumns = false
+          persistSchemaSupportState(currentUserId)
+        } else {
+          throw fullSelect.error
+        }
+      }
+
+      if (rows.length === 0) {
         const fallbackSelect = await supabase
           .from("workout_logs")
           .select(`
@@ -897,16 +1018,46 @@ async function hydrateLogsFromSupabase(force = false): Promise<WorkoutLog[]> {
           .eq("user_id", currentUserId)
           .order("date", { ascending: false })
 
-        if (fallbackSelect.error) {
+        if (!fallbackSelect.error) {
+          rows = (fallbackSelect.data ?? []) as WorkoutLogRow[]
+        } else if (isMissingColumnError(fallbackSelect.error)) {
+          const legacySetNumberSelect = await supabase
+            .from("workout_logs")
+            .select(`
+              id,
+              user_id,
+              date,
+              completed_at,
+              exercise_logs (
+                id,
+                workout_log_id,
+                exercise_name,
+                is_custom,
+                is_timed,
+                notes,
+                order_index,
+                set_entries (
+                  weight_kg,
+                  reps,
+                  duration_seconds
+                )
+              )
+            `)
+            .eq("user_id", currentUserId)
+            .order("date", { ascending: false })
+
+          if (legacySetNumberSelect.error) {
+            throw legacySetNumberSelect.error
+          }
+
+          rows = (legacySetNumberSelect.data ?? []) as WorkoutLogRow[]
+        } else {
           throw fallbackSelect.error
         }
-
-        rows = (fallbackSelect.data ?? []) as WorkoutLogRow[]
-      } else {
-        throw fullSelect.error
       }
 
-      logsCache = normalizeLogs(rows.map(mapRowToLog))
+      const serverLogs = rows.map(mapRowToLog)
+      logsCache = normalizeLogs(mergeServerLogsWithLocalFallback(serverLogs, logsCache))
       hydrated = true
       persistCacheToLocalStorage(currentUserId)
       emitLogsUpdated()
@@ -934,6 +1085,7 @@ async function saveLogToSupabase(log: WorkoutLog): Promise<void> {
 
   const userId = userData.user.id
   cachedUserId = userId
+  loadSchemaSupportState(userId)
   persistCacheToLocalStorage(userId)
 
   const upsertWithProgramColumns = async () => {
@@ -984,6 +1136,7 @@ async function saveLogToSupabase(log: WorkoutLog): Promise<void> {
     if (upsertError) {
       if (isMissingColumnError(upsertError)) {
         workoutLogsSupportsProgramColumns = false
+        persistSchemaSupportState(userId)
         const legacyError = await upsertParentWithProfileRecovery(upsertLegacyColumns)
         if (legacyError) throw legacyError
       } else {
@@ -991,6 +1144,7 @@ async function saveLogToSupabase(log: WorkoutLog): Promise<void> {
       }
     } else {
       workoutLogsSupportsProgramColumns = true
+      persistSchemaSupportState(userId)
     }
   }
 
@@ -1016,22 +1170,62 @@ async function saveLogToSupabase(log: WorkoutLog): Promise<void> {
 
     for (let i = 0; i < log.exercises.length; i++) {
       const exercise = log.exercises[i]
-      const { data: insertedExercise, error: exerciseError } = await supabase
-        .from("exercise_logs")
-        .insert({
-          workout_log_id: log.id,
-          exercise_id: exercise.exerciseId,
-          exercise_name: exercise.exerciseName,
-          is_custom: !!exercise.isCustom,
-          is_timed: !!exercise.isTimed,
-          notes: exercise.notes ?? null,
-          order_index: i,
-        })
-        .select("id")
-        .single()
+      const insertWithExerciseId = async () => {
+        return supabase
+          .from("exercise_logs")
+          .insert({
+            workout_log_id: log.id,
+            exercise_id: exercise.exerciseId,
+            exercise_name: exercise.exerciseName,
+            is_custom: !!exercise.isCustom,
+            is_timed: !!exercise.isTimed,
+            notes: exercise.notes ?? null,
+            order_index: i,
+          })
+          .select("id")
+          .single()
+      }
 
-      if (exerciseError || !insertedExercise?.id) {
-        throw exerciseError ?? new Error("Failed to insert exercise log")
+      const insertLegacyExercise = async () => {
+        return supabase
+          .from("exercise_logs")
+          .insert({
+            workout_log_id: log.id,
+            exercise_name: exercise.exerciseName,
+            is_custom: !!exercise.isCustom,
+            is_timed: !!exercise.isTimed,
+            notes: exercise.notes ?? null,
+            order_index: i,
+          })
+          .select("id")
+          .single()
+      }
+
+      let insertedExercise: { id: string } | null = null
+
+      if (exerciseLogsSupportsExerciseId === false) {
+        const { data, error } = await insertLegacyExercise()
+        if (error || !data?.id) {
+          throw error ?? new Error("Failed to insert exercise log")
+        }
+        insertedExercise = data as { id: string }
+      } else {
+        const withId = await insertWithExerciseId()
+        if (!withId.error && withId.data?.id) {
+          exerciseLogsSupportsExerciseId = true
+          persistSchemaSupportState(userId)
+          insertedExercise = withId.data as { id: string }
+        } else if (isMissingColumnError(withId.error)) {
+          exerciseLogsSupportsExerciseId = false
+          persistSchemaSupportState(userId)
+          const legacy = await insertLegacyExercise()
+          if (legacy.error || !legacy.data?.id) {
+            throw legacy.error ?? new Error("Failed to insert exercise log")
+          }
+          insertedExercise = legacy.data as { id: string }
+        } else {
+          throw withId.error ?? new Error("Failed to insert exercise log")
+        }
       }
 
       if (exercise.sets.length > 0) {
@@ -1049,9 +1243,11 @@ async function saveLogToSupabase(log: WorkoutLog): Promise<void> {
     }
 
     workoutDetailsSyncSupported = true
+    persistSchemaSupportState(userId)
   } catch (error) {
     if (isMissingColumnError(error)) {
       workoutDetailsSyncSupported = false
+      persistSchemaSupportState(userId)
       return
     }
 

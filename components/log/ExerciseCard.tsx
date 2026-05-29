@@ -214,76 +214,79 @@ export function ExerciseCard({
                 }`
               : `${log.sets.length} sets · ${isTimed ? "timed" : "weight × reps"}`}
           </p>
-        </div>
 
-        <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
-          {!!youtubeHref && (
-            <a
-              href={youtubeHref}
-              target="_blank"
-              rel="noopener noreferrer"
-              onClick={(e) => e.stopPropagation()}
+          <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", marginTop: 8 }}>
+            {!!youtubeHref && (
+              <a
+                href={youtubeHref}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={(e) => e.stopPropagation()}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 4,
+                  background: "rgba(255,0,0,0.1)",
+                  border: "0.5px solid rgba(255,0,0,0.2)",
+                  borderRadius: 20,
+                  padding: "4px 9px",
+                  fontSize: 10,
+                  color: "#ff4444",
+                  textDecoration: "none",
+                  fontWeight: 500,
+                  whiteSpace: "nowrap",
+                }}
+              >
+                <IcoYoutube /> Watch
+              </a>
+            )}
+            <button
+              onClick={(e) => {
+                e.stopPropagation()
+                setShowRestTimer((prev) => !prev)
+              }}
+              title={showRestTimer ? "Hide rest timer" : "Show rest timer"}
+              aria-label={showRestTimer ? "Hide rest timer" : "Show rest timer"}
               style={{
+                background: showRestTimer ? "var(--accent-dim)" : "none",
+                border: `0.5px solid ${showRestTimer ? "var(--accent-border)" : "var(--border-default)"}`,
+                borderRadius: 20,
+                cursor: "pointer",
+                color: showRestTimer ? "var(--accent)" : "var(--text-muted)",
+                padding: "4px 9px",
                 display: "flex",
                 alignItems: "center",
                 gap: 4,
-                background: "rgba(255,0,0,0.1)",
-                border: "0.5px solid rgba(255,0,0,0.2)",
-                borderRadius: 20,
-                padding: "4px 9px",
                 fontSize: 10,
-                color: "#ff4444",
-                textDecoration: "none",
                 fontWeight: 500,
-                whiteSpace: "nowrap",
+                fontFamily: "inherit",
               }}
             >
-              <IcoYoutube /> Watch
-            </a>
-          )}
-          <button
-            onClick={(e) => {
-              e.stopPropagation()
-              setShowRestTimer((prev) => !prev)
-            }}
-            title={showRestTimer ? "Hide rest timer" : "Show rest timer"}
-            aria-label={showRestTimer ? "Hide rest timer" : "Show rest timer"}
-            style={{
-              background: showRestTimer ? "var(--accent-dim)" : "none",
-              border: `0.5px solid ${showRestTimer ? "var(--accent-border)" : "var(--border-default)"}`,
-              borderRadius: 20,
-              cursor: "pointer",
-              color: showRestTimer ? "var(--accent)" : "var(--text-muted)",
-              padding: "4px 9px",
-              display: "flex",
-              alignItems: "center",
-              gap: 4,
-              fontSize: 10,
-              fontWeight: 500,
-              fontFamily: "inherit",
-            }}
-          >
-            <IcoClock />
-            Rest
-          </button>
-          <button
-            onClick={(e) => {
-              e.stopPropagation()
-              setEditingYoutube((v) => !v)
-            }}
-            title="Edit YouTube URL"
-            style={{
-              background: "none",
-              border: "none",
-              cursor: "pointer",
-              color: "var(--text-muted)",
-              padding: 4,
-              display: "flex",
-              opacity: 0.7,
-            }}
-          >
-            <IcoYoutube />
-          </button>
+              <IcoClock />
+              Rest
+            </button>
+            <button
+              onClick={(e) => {
+                e.stopPropagation()
+                setEditingYoutube((v) => !v)
+              }}
+              title="Edit YouTube URL"
+              style={{
+                background: "none",
+                border: "none",
+                cursor: "pointer",
+                color: "var(--text-muted)",
+                padding: 4,
+                display: "flex",
+                opacity: 0.7,
+              }}
+            >
+              <IcoYoutube />
+            </button>
+          </div>
+        </div>
+
+        <div style={{ display: "flex", alignItems: "center", flexShrink: 0, gap: 2 }}>
           <button
             onClick={(e) => {
               e.stopPropagation()
@@ -303,7 +306,10 @@ export function ExerciseCard({
             <IcoEdit />
           </button>
           <button
-            onClick={onRemove}
+            onClick={(e) => {
+              e.stopPropagation()
+              onRemove()
+            }}
             title="Remove from this session"
             style={{
               background: "none",

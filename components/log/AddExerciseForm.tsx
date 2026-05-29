@@ -28,6 +28,8 @@ export function AddExerciseForm({
   initialRecent?: RecentExerciseTemplate | null
 }) {
   const [activeCategory, setActiveCategory] = useState<ExerciseCategory>("upper_body")
+  const [showCategoryPicker, setShowCategoryPicker] = useState(false)
+  const [mode, setMode] = useState<"catalog" | "custom">(initialRecent ? "custom" : "catalog")
   const [searchInput, setSearchInput] = useState("")
   const [debouncedSearch, setDebouncedSearch] = useState("")
   const [name, setName] = useState(initialRecent?.exerciseName ?? "")
@@ -35,6 +37,7 @@ export function AddExerciseForm({
   const [sets, setSets] = useState(Math.max(1, initialRecent?.setTemplate.length ?? 3))
   const [youtubeUrl, setYoutubeUrl] = useState(initialRecent?.youtubeUrl ?? "")
   const [setTemplate, setSetTemplate] = useState<ExerciseLog["sets"] | null>(initialRecent?.setTemplate ?? null)
+  const [showAdvanced, setShowAdvanced] = useState(false)
 
   useEffect(() => {
     const timeout = window.setTimeout(() => setDebouncedSearch(searchInput.trim()), 180)
@@ -54,6 +57,10 @@ export function AddExerciseForm({
     [activeCategory, debouncedSearch]
   )
   const visibleCatalog = debouncedSearch ? searchResults : categoryExercises
+  const activeCategoryMeta = useMemo(
+    () => EXERCISE_CATEGORY_META.find((category) => category.id === activeCategory),
+    [activeCategory]
+  )
 
   useEffect(() => {
     if (!debouncedSearch) return
@@ -95,6 +102,8 @@ export function AddExerciseForm({
   }, [catalogQuickAddTemplates, recentExercises])
 
   function handleRecentPick(recent: RecentExerciseTemplate) {
+    setMode("custom")
+    setShowCategoryPicker(false)
     setName(recent.exerciseName)
     setInputType(recent.isTimed ? "timed" : "reps")
     setSets(Math.max(1, recent.setTemplate.length))
@@ -214,198 +223,305 @@ export function AddExerciseForm({
       <p style={{ fontSize: 13, fontWeight: 500, color: "var(--text-primary)", marginBottom: 12 }}>
         Add exercise
       </p>
-      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+      <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
         <RecentExercisesPicker
           recentExercises={quickAddTemplates}
           onSelect={handleQuickAddPick}
           title="Quick add"
         />
 
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-          {EXERCISE_CATEGORY_META.map((category) => {
-            const active = activeCategory === category.id
-            return (
+        <div
+          style={{
+            display: "flex",
+            gap: 6,
+            background: "var(--bg-elevated)",
+            border: "0.5px solid var(--border-subtle)",
+            borderRadius: "var(--radius-sm)",
+            padding: 4,
+          }}
+        >
+          <button
+            onClick={() => setMode("catalog")}
+            style={{
+              flex: 1,
+              background: mode === "catalog" ? "var(--bg-surface)" : "transparent",
+              border: mode === "catalog" ? "0.5px solid var(--border-default)" : "none",
+              borderRadius: "var(--radius-sm)",
+              color: mode === "catalog" ? "var(--text-primary)" : "var(--text-muted)",
+              fontSize: 12,
+              padding: "8px 10px",
+              cursor: "pointer",
+              fontFamily: "inherit",
+              fontWeight: mode === "catalog" ? 500 : 400,
+            }}
+          >
+            Browse catalog
+          </button>
+          <button
+            onClick={() => setMode("custom")}
+            style={{
+              flex: 1,
+              background: mode === "custom" ? "var(--bg-surface)" : "transparent",
+              border: mode === "custom" ? "0.5px solid var(--border-default)" : "none",
+              borderRadius: "var(--radius-sm)",
+              color: mode === "custom" ? "var(--text-primary)" : "var(--text-muted)",
+              fontSize: 12,
+              padding: "8px 10px",
+              cursor: "pointer",
+              fontFamily: "inherit",
+              fontWeight: mode === "custom" ? 500 : 400,
+            }}
+          >
+            Create custom
+          </button>
+        </div>
+
+        {mode === "catalog" ? (
+          <>
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
               <button
-                key={category.id}
-                onClick={() => setActiveCategory(category.id)}
-                onFocus={() => setActiveCategory(category.id)}
+                onClick={() => setShowCategoryPicker((prev) => !prev)}
                 style={{
-                  background: active ? "var(--accent-dim)" : "var(--bg-elevated)",
-                  border: `0.5px solid ${active ? "var(--accent-border)" : "var(--border-default)"}`,
-                  borderRadius: 20,
-                  color: active ? "var(--accent)" : "var(--text-secondary)",
-                  fontSize: 11,
-                  padding: "5px 10px",
+                  ...inputStyle,
+                  cursor: "pointer",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  textAlign: "left",
+                }}
+              >
+                <span style={{ color: "var(--text-primary)", fontSize: 13 }}>
+                  Muscle group: {activeCategoryMeta?.label ?? "Select"}
+                </span>
+                <span style={{ color: "var(--text-muted)", fontSize: 11 }}>
+                  {showCategoryPicker ? "Hide" : "Change"}
+                </span>
+              </button>
+
+              {showCategoryPicker && (
+                <div
+                  style={{
+                    background: "var(--bg-elevated)",
+                    border: "0.5px solid var(--border-subtle)",
+                    borderRadius: "var(--radius-sm)",
+                    padding: 8,
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: 8,
+                  }}
+                >
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                    {EXERCISE_CATEGORY_META.map((category) => {
+                      const active = activeCategory === category.id
+                      return (
+                        <button
+                          key={category.id}
+                          onClick={() => {
+                            setActiveCategory(category.id)
+                            setShowCategoryPicker(false)
+                          }}
+                          style={{
+                            background: active ? "var(--accent-dim)" : "var(--bg-surface)",
+                            border: `0.5px solid ${active ? "var(--accent-border)" : "var(--border-default)"}`,
+                            borderRadius: 20,
+                            color: active ? "var(--accent)" : "var(--text-secondary)",
+                            fontSize: 11,
+                            padding: "5px 10px",
+                            cursor: "pointer",
+                            fontFamily: "inherit",
+                          }}
+                        >
+                          {category.label}
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <input
+              placeholder="Search catalog exercises"
+              value={searchInput}
+              onChange={(e) => setSearchInput(e.target.value)}
+              style={inputStyle}
+            />
+
+            {visibleCatalog.length > 0 ? (
+              <div
+                style={{
+                  maxHeight: 210,
+                  overflowY: "auto",
+                  border: "0.5px solid var(--border-subtle)",
+                  borderRadius: "var(--radius-sm)",
+                  background: "var(--bg-elevated)",
+                  padding: 6,
+                }}
+              >
+                <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+                  {visibleCatalog.slice(0, 10).map((item) => (
+                    <button
+                      key={item.id}
+                      onClick={() => addCatalogItem(item.id)}
+                      style={{
+                        background: "var(--bg-surface)",
+                        border: "0.5px solid var(--border-default)",
+                        borderRadius: "var(--radius-sm)",
+                        color: "var(--text-primary)",
+                        fontSize: 12,
+                        textAlign: "left",
+                        padding: "9px 10px",
+                        cursor: "pointer",
+                        fontFamily: "inherit",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "space-between",
+                        gap: 8,
+                      }}
+                    >
+                      <span>{item.name}</span>
+                      <span style={{ fontSize: 10, color: "var(--text-muted)", whiteSpace: "nowrap" }}>
+                        {EXERCISE_CATEGORY_LABELS[item.category]}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <p style={{ fontSize: 11, color: "var(--text-muted)", margin: 0 }}>
+                No catalog matches. Switch to Create custom.
+              </p>
+            )}
+          </>
+        ) : (
+          <>
+            <RecentExercisesPicker
+              recentExercises={recentExercises}
+              onSelect={handleRecentPick}
+              title="Use recent"
+            />
+
+            <input
+              placeholder="Exercise name"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && submit()}
+              autoFocus
+              style={inputStyle}
+            />
+
+            <div style={{ display: "flex", gap: 8 }}>
+              <div style={{ flex: 1 }}>
+                <label style={{ fontSize: 11, color: "var(--text-muted)", display: "block", marginBottom: 4 }}>
+                  Sets
+                </label>
+                <input
+                  type="number"
+                  inputMode="numeric"
+                  min={1}
+                  max={10}
+                  value={sets}
+                  onChange={(e) => {
+                    setSets(Math.max(1, Number(e.target.value)))
+                    setSetTemplate(null)
+                  }}
+                  style={inputStyle}
+                />
+              </div>
+              <div style={{ flex: 1 }}>
+                <label style={{ fontSize: 11, color: "var(--text-muted)", display: "block", marginBottom: 4 }}>
+                  Track by
+                </label>
+                <select
+                  value={inputType}
+                  onChange={(e) => setInputType(e.target.value as "reps" | "timed")}
+                  style={{ ...inputStyle, cursor: "pointer" }}
+                >
+                  <option value="reps">Weight × Reps</option>
+                  <option value="timed">Duration (sec/min)</option>
+                </select>
+              </div>
+            </div>
+
+            <button
+              onClick={() => setShowAdvanced((prev) => !prev)}
+              style={{
+                background: "none",
+                border: "0.5px solid var(--border-default)",
+                borderRadius: "var(--radius-sm)",
+                color: "var(--text-secondary)",
+                fontSize: 12,
+                padding: "8px 10px",
+                cursor: "pointer",
+                fontFamily: "inherit",
+                textAlign: "left",
+              }}
+            >
+              {showAdvanced ? "Hide" : "Show"} advanced fields
+            </button>
+
+            {showAdvanced && (
+              <input
+                placeholder="YouTube URL (optional)"
+                value={youtubeUrl}
+                onChange={(e) => setYoutubeUrl(e.target.value)}
+                style={inputStyle}
+              />
+            )}
+
+            <div
+              style={{
+                background: "var(--bg-elevated)",
+                border: "0.5px solid var(--border-subtle)",
+                borderRadius: "var(--radius-sm)",
+                padding: "8px 12px",
+                fontSize: 11,
+                color: "var(--text-muted)",
+              }}
+            >
+              {inputType === "timed"
+                ? "Each set will have a duration input with sec / min toggle"
+                : "Each set will have weight (kg) × reps inputs"}
+            </div>
+
+            <div style={{ display: "flex", gap: 8 }}>
+              <button
+                onClick={onCancel}
+                style={{
+                  flex: 1,
+                  background: "none",
+                  border: "0.5px solid var(--border-default)",
+                  borderRadius: "var(--radius-sm)",
+                  color: "var(--text-secondary)",
+                  fontSize: 13,
+                  padding: "10px 0",
                   cursor: "pointer",
                   fontFamily: "inherit",
                 }}
               >
-                {category.label}
+                Cancel
               </button>
-            )
-          })}
-        </div>
-
-        <input
-          placeholder="Search catalog exercises"
-          value={searchInput}
-          onChange={(e) => setSearchInput(e.target.value)}
-          style={inputStyle}
-        />
-
-        {visibleCatalog.length > 0 ? (
-          <div
-            style={{
-              maxHeight: 200,
-              overflowY: "auto",
-              border: "0.5px solid var(--border-subtle)",
-              borderRadius: "var(--radius-sm)",
-              background: "var(--bg-elevated)",
-              padding: 6,
-            }}
-          >
-            <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-              {visibleCatalog.slice(0, 12).map((item) => (
-                <button
-                  key={item.id}
-                  onClick={() => addCatalogItem(item.id)}
-                  style={{
-                    background: "var(--bg-surface)",
-                    border: "0.5px solid var(--border-default)",
-                    borderRadius: "var(--radius-sm)",
-                    color: "var(--text-primary)",
-                    fontSize: 12,
-                    textAlign: "left",
-                    padding: "8px 10px",
-                    cursor: "pointer",
-                    fontFamily: "inherit",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "space-between",
-                    gap: 8,
-                  }}
-                >
-                  <span>{item.name}</span>
-                  <span style={{ fontSize: 10, color: "var(--text-muted)", whiteSpace: "nowrap" }}>
-                    {EXERCISE_CATEGORY_LABELS[item.category]}
-                  </span>
-                </button>
-              ))}
+              <button
+                onClick={submit}
+                disabled={!name.trim()}
+                style={{
+                  flex: 2,
+                  background: name.trim() ? "var(--accent)" : "var(--bg-elevated)",
+                  border: "none",
+                  borderRadius: "var(--radius-sm)",
+                  color: name.trim() ? "#fff" : "var(--text-muted)",
+                  fontSize: 13,
+                  fontWeight: 500,
+                  padding: "10px 0",
+                  cursor: name.trim() ? "pointer" : "default",
+                  fontFamily: "inherit",
+                }}
+              >
+                Add exercise
+              </button>
             </div>
-          </div>
-        ) : (
-          <p style={{ fontSize: 11, color: "var(--text-muted)", margin: 0 }}>
-            No catalog matches. Add a custom exercise below.
-          </p>
+          </>
         )}
-
-        <RecentExercisesPicker
-          recentExercises={recentExercises}
-          onSelect={handleRecentPick}
-          title="Use recent"
-        />
-
-        <input
-          placeholder="Exercise name"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && submit()}
-          autoFocus
-          style={inputStyle}
-        />
-
-        <input
-          placeholder="YouTube URL (optional)"
-          value={youtubeUrl}
-          onChange={(e) => setYoutubeUrl(e.target.value)}
-          style={inputStyle}
-        />
-
-        <div style={{ display: "flex", gap: 8 }}>
-          <div style={{ flex: 1 }}>
-            <label style={{ fontSize: 11, color: "var(--text-muted)", display: "block", marginBottom: 4 }}>
-              Sets
-            </label>
-            <input
-              type="number"
-              inputMode="numeric"
-              min={1}
-              max={10}
-              value={sets}
-              onChange={(e) => {
-                setSets(Math.max(1, Number(e.target.value)))
-                setSetTemplate(null)
-              }}
-              style={inputStyle}
-            />
-          </div>
-          <div style={{ flex: 1 }}>
-            <label style={{ fontSize: 11, color: "var(--text-muted)", display: "block", marginBottom: 4 }}>
-              Track by
-            </label>
-            <select
-              value={inputType}
-              onChange={(e) => setInputType(e.target.value as "reps" | "timed")}
-              style={{ ...inputStyle, cursor: "pointer" }}
-            >
-              <option value="reps">Weight × Reps</option>
-              <option value="timed">Duration (sec/min)</option>
-            </select>
-          </div>
-        </div>
-
-        {/* Preview of what the input will look like */}
-        <div
-          style={{
-            background: "var(--bg-elevated)",
-            border: "0.5px solid var(--border-subtle)",
-            borderRadius: "var(--radius-sm)",
-            padding: "8px 12px",
-            fontSize: 11,
-            color: "var(--text-muted)",
-          }}
-        >
-          {inputType === "timed"
-            ? "Each set will have a duration input with sec / min toggle"
-            : "Each set will have weight (kg) × reps inputs"}
-        </div>
-
-        <div style={{ display: "flex", gap: 8 }}>
-          <button
-            onClick={onCancel}
-            style={{
-              flex: 1,
-              background: "none",
-              border: "0.5px solid var(--border-default)",
-              borderRadius: "var(--radius-sm)",
-              color: "var(--text-secondary)",
-              fontSize: 13,
-              padding: "10px 0",
-              cursor: "pointer",
-              fontFamily: "inherit",
-            }}
-          >
-            Cancel
-          </button>
-          <button
-            onClick={submit}
-            disabled={!name.trim()}
-            style={{
-              flex: 2,
-              background: name.trim() ? "var(--accent)" : "var(--bg-elevated)",
-              border: "none",
-              borderRadius: "var(--radius-sm)",
-              color: name.trim() ? "#fff" : "var(--text-muted)",
-              fontSize: 13,
-              fontWeight: 500,
-              padding: "10px 0",
-              cursor: name.trim() ? "pointer" : "default",
-              fontFamily: "inherit",
-            }}
-          >
-            Add exercise
-          </button>
-        </div>
       </div>
     </div>
   )

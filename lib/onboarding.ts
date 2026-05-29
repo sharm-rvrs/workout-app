@@ -5,6 +5,7 @@ type MissingColumnError = {
 }
 
 const LEGACY_SCHEMA_ERROR_CODES = new Set(["PGRST204", "42703"])
+const missingProfilesColumns = new Set<string>()
 
 function isMissingColumnError(error: MissingColumnError | null | undefined): boolean {
   if (!error) return false
@@ -69,6 +70,10 @@ export async function markOnboardingCompleted(
     onboarding_complete: true,
   }
 
+  for (const field of missingProfilesColumns) {
+    payload = removeField(payload, field)
+  }
+
   const fallbackFields = [
     "onboarding_completion_source",
     "onboarding_completed_at",
@@ -99,6 +104,7 @@ export async function markOnboardingCompleted(
       error.message?.match(/column\s+"([^"]+)"/i)?.[1] ??
       error.message?.match(/'([^']+)'\s+column/i)?.[1]
     if (missingColumn) {
+      missingProfilesColumns.add(missingColumn)
       payload = removeField(payload, missingColumn)
       continue
     }
