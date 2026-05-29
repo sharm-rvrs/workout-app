@@ -74,6 +74,7 @@ export interface WorkoutLog {
   skippedExerciseIds: string[]
   exercises: ExerciseLog[]
   completedAt: string
+  sessionDurationSeconds?: number
 }
 
 export const WORKOUT_PLAN: WorkoutPlan = {
@@ -603,6 +604,7 @@ type SchemaSupportState = {
   workoutDetailsSyncSupported: boolean | null
   workoutLogsSupportsFullRead: boolean | null
   exerciseLogsSupportsExerciseId: boolean | null
+  workoutLogsSupportsDurationColumn: boolean | null
 }
 
 type SetEntryRow = {
@@ -632,6 +634,7 @@ type WorkoutLogRow = {
   day_override?: DayKey | null
   skipped_exercise_ids: string[] | null
   completed_at: string
+  session_duration_seconds?: number | null
   exercise_logs: ExerciseLogRow[] | null
 }
 
@@ -642,6 +645,7 @@ let workoutLogsSupportsProgramColumns: boolean | null = null
 let workoutDetailsSyncSupported: boolean | null = null
 let workoutLogsSupportsFullRead: boolean | null = null
 let exerciseLogsSupportsExerciseId: boolean | null = null
+let workoutLogsSupportsDurationColumn: boolean | null = null
 let cachedUserId: string | null = null
 
 function resetSchemaSupportState() {
@@ -649,6 +653,7 @@ function resetSchemaSupportState() {
   workoutDetailsSyncSupported = null
   workoutLogsSupportsFullRead = null
   exerciseLogsSupportsExerciseId = null
+  workoutLogsSupportsDurationColumn = null
 }
 
 function emitLogsUpdated() {
@@ -752,6 +757,10 @@ function normalizeLogs(logs: WorkoutLog[]): WorkoutLog[] {
   return logs
     .map((l) => ({
       ...l,
+      sessionDurationSeconds:
+        typeof l.sessionDurationSeconds === "number" && Number.isFinite(l.sessionDurationSeconds)
+          ? Math.max(0, Math.floor(l.sessionDurationSeconds))
+          : undefined,
       skippedExerciseIds: l.skippedExerciseIds ?? [],
       exercises: l.exercises.map((ex) => ({
         ...ex,
@@ -833,6 +842,10 @@ function mapRowToLog(row: WorkoutLogRow): WorkoutLog {
     skippedExerciseIds: row.skipped_exercise_ids ?? [],
     exercises,
     completedAt: row.completed_at,
+    sessionDurationSeconds:
+      typeof row.session_duration_seconds === "number" && Number.isFinite(row.session_duration_seconds)
+        ? Math.max(0, Math.floor(row.session_duration_seconds))
+        : undefined,
   }
 }
 
@@ -856,6 +869,7 @@ function persistSchemaSupportState(userId?: string | null) {
       workoutDetailsSyncSupported,
       workoutLogsSupportsFullRead,
       exerciseLogsSupportsExerciseId,
+      workoutLogsSupportsDurationColumn,
     }
     localStorage.setItem(storageKey, JSON.stringify(state))
   } catch {
@@ -883,6 +897,7 @@ function loadSchemaSupportState(userId?: string | null) {
     workoutDetailsSyncSupported = readBooleanOrNull(parsed.workoutDetailsSyncSupported)
     workoutLogsSupportsFullRead = readBooleanOrNull(parsed.workoutLogsSupportsFullRead)
     exerciseLogsSupportsExerciseId = readBooleanOrNull(parsed.exerciseLogsSupportsExerciseId)
+    workoutLogsSupportsDurationColumn = readBooleanOrNull(parsed.workoutLogsSupportsDurationColumn)
   } catch {
     resetSchemaSupportState()
   }
@@ -946,17 +961,18 @@ async function hydrateLogsFromSupabase(force = false): Promise<WorkoutLog[]> {
 
       let rows: WorkoutLogRow[] = []
 
-      if (workoutLogsSupportsFullRead !== false) {
-        const fullSelect = await supabase
-          .from("workout_logs")
-          .select(`
+      const fullSelectFieldsBase = `
             id,
             user_id,
             date,
             day_key,
             day_override,
             skipped_exercise_ids,
-            completed_at,
+            completed_at`
+      const fullSelectFieldsWithDuration = `${fullSelectFieldsBase},
+            session_duration_seconds`
+
+      const fullSelectNestedFields = `,
             exercise_logs (
               id,
               workout_log_id,
@@ -972,10 +988,78 @@ async function hydrateLogsFromSupabase(force = false): Promise<WorkoutLog[]> {
                 reps,
                 duration_seconds
               )
-            )
-          `)
+            )`
+
+      const fallbackSelectFieldsBase = `
+            id,
+            user_id,
+            date,
+            completed_at`
+      const fallbackSelectFieldsWithDuration = `${fallbackSelectFieldsBase},
+            session_duration_seconds`
+
+      const fallbackSelectNestedFields = `,
+            exercise_logs (
+              id,
+              workout_log_id,
+              exercise_name,
+              is_custom,
+              is_timed,
+              notes,
+              order_index,
+              set_entries (
+                set_number,
+                weight_kg,
+                reps,
+                duration_seconds
+              )
+            )`
+
+      const legacySetSelectFieldsBase = `
+              id,
+              user_id,
+              date,
+              completed_at`
+      const legacySetSelectFieldsWithDuration = `${legacySetSelectFieldsBase},
+              session_duration_seconds`
+
+      const legacySetSelectNestedFields = `,
+              exercise_logs (
+                id,
+                workout_log_id,
+                exercise_name,
+                is_custom,
+                is_timed,
+                notes,
+                order_index,
+                set_entries (
+                  weight_kg,
+                  reps,
+                  duration_seconds
+                )
+              )`
+
+      if (workoutLogsSupportsFullRead !== false) {
+        const fullSelectFields =
+          workoutLogsSupportsDurationColumn === false
+            ? `${fullSelectFieldsBase}${fullSelectNestedFields}`
+            : `${fullSelectFieldsWithDuration}${fullSelectNestedFields}`
+
+        let fullSelect = (await supabase
+          .from("workout_logs")
+          .select(fullSelectFields as any)
           .eq("user_id", currentUserId)
-          .order("date", { ascending: false })
+          .order("date", { ascending: false })) as any
+
+        if (fullSelect.error && workoutLogsSupportsDurationColumn !== false && isMissingColumnError(fullSelect.error)) {
+          workoutLogsSupportsDurationColumn = false
+          persistSchemaSupportState(currentUserId)
+          fullSelect = (await supabase
+            .from("workout_logs")
+            .select(`${fullSelectFieldsBase}${fullSelectNestedFields}` as any)
+            .eq("user_id", currentUserId)
+            .order("date", { ascending: false })) as any
+        }
 
         if (!fullSelect.error) {
           workoutLogsSupportsFullRead = true
@@ -992,59 +1076,50 @@ async function hydrateLogsFromSupabase(force = false): Promise<WorkoutLog[]> {
       }
 
       if (rows.length === 0) {
-        const fallbackSelect = await supabase
+        const fallbackSelectFields =
+          workoutLogsSupportsDurationColumn === false
+            ? `${fallbackSelectFieldsBase}${fallbackSelectNestedFields}`
+            : `${fallbackSelectFieldsWithDuration}${fallbackSelectNestedFields}`
+
+        let fallbackSelect = (await supabase
           .from("workout_logs")
-          .select(`
-            id,
-            user_id,
-            date,
-            completed_at,
-            exercise_logs (
-              id,
-              workout_log_id,
-              exercise_name,
-              is_custom,
-              is_timed,
-              notes,
-              order_index,
-              set_entries (
-                set_number,
-                weight_kg,
-                reps,
-                duration_seconds
-              )
-            )
-          `)
+          .select(fallbackSelectFields as any)
           .eq("user_id", currentUserId)
-          .order("date", { ascending: false })
+          .order("date", { ascending: false })) as any
+
+        if (fallbackSelect.error && workoutLogsSupportsDurationColumn !== false && isMissingColumnError(fallbackSelect.error)) {
+          workoutLogsSupportsDurationColumn = false
+          persistSchemaSupportState(currentUserId)
+          fallbackSelect = (await supabase
+            .from("workout_logs")
+            .select(`${fallbackSelectFieldsBase}${fallbackSelectNestedFields}` as any)
+            .eq("user_id", currentUserId)
+            .order("date", { ascending: false })) as any
+        }
 
         if (!fallbackSelect.error) {
           rows = (fallbackSelect.data ?? []) as WorkoutLogRow[]
         } else if (isMissingColumnError(fallbackSelect.error)) {
-          const legacySetNumberSelect = await supabase
+          const legacyFields =
+            workoutLogsSupportsDurationColumn === false
+              ? `${legacySetSelectFieldsBase}${legacySetSelectNestedFields}`
+              : `${legacySetSelectFieldsWithDuration}${legacySetSelectNestedFields}`
+
+          let legacySetNumberSelect = (await supabase
             .from("workout_logs")
-            .select(`
-              id,
-              user_id,
-              date,
-              completed_at,
-              exercise_logs (
-                id,
-                workout_log_id,
-                exercise_name,
-                is_custom,
-                is_timed,
-                notes,
-                order_index,
-                set_entries (
-                  weight_kg,
-                  reps,
-                  duration_seconds
-                )
-              )
-            `)
+            .select(legacyFields as any)
             .eq("user_id", currentUserId)
-            .order("date", { ascending: false })
+            .order("date", { ascending: false })) as any
+
+          if (legacySetNumberSelect.error && workoutLogsSupportsDurationColumn !== false && isMissingColumnError(legacySetNumberSelect.error)) {
+            workoutLogsSupportsDurationColumn = false
+            persistSchemaSupportState(currentUserId)
+            legacySetNumberSelect = (await supabase
+              .from("workout_logs")
+              .select(`${legacySetSelectFieldsBase}${legacySetSelectNestedFields}` as any)
+              .eq("user_id", currentUserId)
+              .order("date", { ascending: false })) as any
+          }
 
           if (legacySetNumberSelect.error) {
             throw legacySetNumberSelect.error
@@ -1089,7 +1164,16 @@ async function saveLogToSupabase(log: WorkoutLog): Promise<void> {
   persistCacheToLocalStorage(userId)
 
   const upsertWithProgramColumns = async () => {
-    return supabase.from("workout_logs").upsert({
+    const payload: {
+      id: string
+      user_id: string
+      date: string
+      day_key: DayKey
+      day_override: DayKey | null
+      skipped_exercise_ids: string[]
+      completed_at: string
+      session_duration_seconds?: number
+    } = {
       id: log.id,
       user_id: userId,
       date: log.date,
@@ -1097,16 +1181,34 @@ async function saveLogToSupabase(log: WorkoutLog): Promise<void> {
       day_override: log.dayOverride ?? null,
       skipped_exercise_ids: log.skippedExerciseIds,
       completed_at: log.completedAt,
-    })
+    }
+
+    if (workoutLogsSupportsDurationColumn !== false) {
+      payload.session_duration_seconds = log.sessionDurationSeconds ?? 0
+    }
+
+    return supabase.from("workout_logs").upsert(payload)
   }
 
   const upsertLegacyColumns = async () => {
-    return supabase.from("workout_logs").upsert({
+    const payload: {
+      id: string
+      user_id: string
+      date: string
+      completed_at: string
+      session_duration_seconds?: number
+    } = {
       id: log.id,
       user_id: userId,
       date: log.date,
       completed_at: log.completedAt,
-    })
+    }
+
+    if (workoutLogsSupportsDurationColumn !== false) {
+      payload.session_duration_seconds = log.sessionDurationSeconds ?? 0
+    }
+
+    return supabase.from("workout_logs").upsert(payload)
   }
 
   const upsertParentWithProfileRecovery = async (
@@ -1129,21 +1231,39 @@ async function saveLogToSupabase(log: WorkoutLog): Promise<void> {
   }
 
   if (workoutLogsSupportsProgramColumns === false) {
-    const legacyError = await upsertParentWithProfileRecovery(upsertLegacyColumns)
+    let legacyError = await upsertParentWithProfileRecovery(upsertLegacyColumns)
+    if (legacyError && workoutLogsSupportsDurationColumn !== false && isMissingColumnError(legacyError)) {
+      workoutLogsSupportsDurationColumn = false
+      persistSchemaSupportState(userId)
+      legacyError = await upsertParentWithProfileRecovery(upsertLegacyColumns)
+    }
     if (legacyError) throw legacyError
   } else {
-    const upsertError = await upsertParentWithProfileRecovery(upsertWithProgramColumns)
+    let upsertError = await upsertParentWithProfileRecovery(upsertWithProgramColumns)
+    if (upsertError && workoutLogsSupportsDurationColumn !== false && isMissingColumnError(upsertError)) {
+      workoutLogsSupportsDurationColumn = false
+      persistSchemaSupportState(userId)
+      upsertError = await upsertParentWithProfileRecovery(upsertWithProgramColumns)
+    }
     if (upsertError) {
       if (isMissingColumnError(upsertError)) {
         workoutLogsSupportsProgramColumns = false
         persistSchemaSupportState(userId)
-        const legacyError = await upsertParentWithProfileRecovery(upsertLegacyColumns)
+        let legacyError = await upsertParentWithProfileRecovery(upsertLegacyColumns)
+        if (legacyError && workoutLogsSupportsDurationColumn !== false && isMissingColumnError(legacyError)) {
+          workoutLogsSupportsDurationColumn = false
+          persistSchemaSupportState(userId)
+          legacyError = await upsertParentWithProfileRecovery(upsertLegacyColumns)
+        }
         if (legacyError) throw legacyError
       } else {
         throw upsertError
       }
     } else {
       workoutLogsSupportsProgramColumns = true
+      if (workoutLogsSupportsDurationColumn !== false) {
+        workoutLogsSupportsDurationColumn = true
+      }
       persistSchemaSupportState(userId)
     }
   }

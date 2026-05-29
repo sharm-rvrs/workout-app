@@ -95,6 +95,17 @@ function buildCalendarDays(year: number, month: number, logMap: Map<string, Work
   return days
 }
 
+function formatSessionDuration(seconds?: number): string | null {
+  if (!seconds || seconds <= 0) return null
+  const total = Math.floor(seconds)
+  const hours = Math.floor(total / 3600)
+  const minutes = Math.floor((total % 3600) / 60)
+
+  if (hours > 0) return `${hours}h ${minutes}m`
+  if (minutes > 0) return `${minutes}m`
+  return `${total}s`
+}
+
 function SessionDrawer({
   log,
   onClose,
@@ -105,6 +116,7 @@ function SessionDrawer({
   programByDay: Partial<Record<DayKey, WorkoutDay>>
 }) {
   const workout = getWorkoutForLog(log, programByDay)
+  const sessionDurationLabel = formatSessionDuration(log.sessionDurationSeconds)
   return (
     <>
       <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 60, backdropFilter: "blur(4px)" }} />
@@ -125,6 +137,7 @@ function SessionDrawer({
             <div>
               <p style={{ fontSize: 15, fontWeight: 500, color: "var(--text-primary)" }}>{workout.label}</p>
               <p style={{ fontSize: 12, color: "var(--text-muted)" }}>{formatDateFull(log.date)}</p>
+              {sessionDurationLabel && <p style={{ fontSize: 11, color: "var(--text-secondary)", marginTop: 3 }}>Duration: {sessionDurationLabel}</p>}
             </div>
           </div>
           <button onClick={onClose} aria-label="Close"
@@ -406,6 +419,7 @@ export default function ProgressPage() {
             const workout = getWorkoutForLog(log, programByDay)
             const filledEx = log.exercises.filter((ex) => ex.sets.some((s) => s.weightKg || s.reps || s.durationSeconds))
             const totalSets = filledEx.reduce((acc, ex) => acc + ex.sets.filter((s) => s.weightKg || s.reps || s.durationSeconds).length, 0)
+            const sessionDurationLabel = formatSessionDuration(log.sessionDurationSeconds)
             return (
               <button key={log.id} onClick={() => setSelectedLog(log)}
                 style={{ background: "var(--bg-surface)", border: "0.5px solid var(--border-subtle)", borderRadius: "var(--radius-lg)", padding: "14px 16px", cursor: "pointer", textAlign: "left", fontFamily: "inherit", width: "100%", display: "flex", alignItems: "center", gap: 14 }}>
@@ -420,6 +434,7 @@ export default function ProgressPage() {
                 <div style={{ textAlign: "right", flexShrink: 0 }}>
                   <p style={{ fontSize: 13, fontWeight: 500, color: "var(--text-primary)" }}>{filledEx.length} ex</p>
                   <p style={{ fontSize: 11, color: "var(--text-secondary)", marginTop: 2 }}>{totalSets} sets</p>
+                  {sessionDurationLabel && <p style={{ fontSize: 11, color: "var(--text-secondary)", marginTop: 2 }}>{sessionDurationLabel}</p>}
                 </div>
                 <IcoChevRight />
               </button>

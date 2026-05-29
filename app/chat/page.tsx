@@ -222,7 +222,7 @@ export default function ChatPage() {
               <p style={{ fontSize: 16, fontWeight: 500, color: "var(--text-primary)", marginBottom: 6 }}>Your personal gym assistant</p>
               <p style={{ fontSize: 13, color: "var(--text-secondary)", lineHeight: 1.6, maxWidth: 300 }}>
                 {hasServerContext
-                  ? "I can see your live profile and logged workouts from Supabase. Ask me anything."
+                  ? "I can see your live profile and logged workouts. Ask me anything."
                   : "I know your full program. Log a workout first and I can give personalized feedback."}
               </p>
             </div>

@@ -26,6 +26,47 @@ import { getRecentExerciseTemplates, type RecentExerciseTemplate } from "@/lib/l
 import { RecentExercisesPicker } from "@/components/log/RecentExercisesPicker"
 import { trackTelemetryEvent } from "@/lib/telemetry"
 
+const WORKOUT_TIMER_STORAGE_KEY = "workout_timer_state_v1"
+
+type PersistedWorkoutTimerState = {
+  date: string
+  running: boolean
+  startedAtMs: number | null
+  elapsedBeforeRunSec: number
+  updatedAtMs: number
+}
+
+function readPersistedWorkoutTimerState(): PersistedWorkoutTimerState | null {
+  if (typeof window === "undefined") return null
+  try {
+    const raw = localStorage.getItem(WORKOUT_TIMER_STORAGE_KEY)
+    if (!raw) return null
+    const parsed = JSON.parse(raw) as Partial<PersistedWorkoutTimerState>
+    if (typeof parsed.date !== "string") return null
+    return {
+      date: parsed.date,
+      running: !!parsed.running,
+      startedAtMs: typeof parsed.startedAtMs === "number" && Number.isFinite(parsed.startedAtMs) ? parsed.startedAtMs : null,
+      elapsedBeforeRunSec:
+        typeof parsed.elapsedBeforeRunSec === "number" && Number.isFinite(parsed.elapsedBeforeRunSec)
+          ? Math.max(0, Math.floor(parsed.elapsedBeforeRunSec))
+          : 0,
+      updatedAtMs: typeof parsed.updatedAtMs === "number" && Number.isFinite(parsed.updatedAtMs) ? parsed.updatedAtMs : Date.now(),
+    }
+  } catch {
+    return null
+  }
+}
+
+function persistWorkoutTimerState(state: PersistedWorkoutTimerState) {
+  if (typeof window === "undefined") return
+  try {
+    localStorage.setItem(WORKOUT_TIMER_STORAGE_KEY, JSON.stringify(state))
+  } catch {
+    // Ignore persistence failures.
+  }
+}
+
 function getMaxWeightForExercise(ex: ExerciseLog): number {
   let max = 0
   for (const s of ex.sets) {
@@ -83,7 +124,19 @@ function LogPageInner() {
   const [prefillRecent, setPrefillRecent] = useState<RecentExerciseTemplate | null>(null)
   const [hasSentLogStarted, setHasSentLogStarted] = useState(false)
   const [initialStateKey, setInitialStateKey] = useState<string | null>(null)
+  const [timerRunning, setTimerRunning] = useState(false)
+  const [timerStartedAtMs, setTimerStartedAtMs] = useState<number | null>(null)
+  const [timerElapsedBeforeRunSec, setTimerElapsedBeforeRunSec] = useState(0)
+  const [timerNowMs, setTimerNowMs] = useState(() => Date.now())
+  const [timerHydrated, setTimerHydrated] = useState(false)
   const recentExercises = getRecentExerciseTemplates(getLogs())
+
+  const timerElapsedSec = timerElapsedBeforeRunSec + (timerRunning && timerStartedAtMs ? Math.floor((timerNowMs - timerStartedAtMs) / 1000) : 0)
+
+  const timerHours = Math.floor(timerElapsedSec / 3600)
+  const timerMinutes = Math.floor((timerElapsedSec % 3600) / 60)
+  const timerSeconds = timerElapsedSec % 60
+  const formattedTimer = [timerHours, timerMinutes, timerSeconds].map((part) => String(part).padStart(2, "0")).join(":")
 
   useEffect(() => {
     let cancelled = false
@@ -113,9 +166,37 @@ function LogPageInner() {
   }, [])
 
   useEffect(() => {
+    if (!timerRunning) return
+
+    const interval = window.setInterval(() => {
+      setTimerNowMs(Date.now())
+    }, 1000)
+
+    return () => {
+      window.clearInterval(interval)
+    }
+  }, [timerRunning])
+
+  useEffect(() => {
+    if (!timerHydrated) return
+    persistWorkoutTimerState({
+      date,
+      running: timerRunning,
+      startedAtMs: timerStartedAtMs,
+      elapsedBeforeRunSec: timerElapsedBeforeRunSec,
+      updatedAtMs: Date.now(),
+    })
+  }, [date, timerRunning, timerStartedAtMs, timerElapsedBeforeRunSec, timerHydrated])
+
+  useEffect(() => {
     if (programLoading) return
 
+    setTimerHydrated(false)
+
     const existing = getLogByDate(date)
+    const persistedTimer = readPersistedWorkoutTimerState()
+    const hasPersistedTimerForDate = persistedTimer?.date === date
+
     if (existing) {
       const existingEffectiveDayKey = existing.dayOverride ?? existing.dayKey
       const existingDay = programByDay[existingEffectiveDayKey] ?? WORKOUT_PLAN[existingEffectiveDayKey]
@@ -132,6 +213,17 @@ function LogPageInner() {
         const nextSkippedIds = new Set(existing.skippedExerciseIds ?? [])
         setSkippedIds(nextSkippedIds)
         setExerciseLogs(resolvedExercises)
+        if (hasPersistedTimerForDate && persistedTimer) {
+          setTimerRunning(persistedTimer.running)
+          setTimerStartedAtMs(persistedTimer.startedAtMs)
+          setTimerElapsedBeforeRunSec(persistedTimer.elapsedBeforeRunSec)
+        } else {
+          setTimerRunning(false)
+          setTimerStartedAtMs(null)
+          setTimerElapsedBeforeRunSec(existing.sessionDurationSeconds ?? 0)
+        }
+        setTimerNowMs(Date.now())
+        setTimerHydrated(true)
         setInitialStateKey(buildLogDraftKey(date, existingEffectiveDayKey, nextSkippedIds, resolvedExercises))
       })
     } else {
@@ -144,6 +236,17 @@ function LogPageInner() {
         const nextSkippedIds = new Set<string>()
         setSkippedIds(nextSkippedIds)
         setExerciseLogs(defaultLogs)
+        if (hasPersistedTimerForDate && persistedTimer) {
+          setTimerRunning(persistedTimer.running)
+          setTimerStartedAtMs(persistedTimer.startedAtMs)
+          setTimerElapsedBeforeRunSec(persistedTimer.elapsedBeforeRunSec)
+        } else {
+          setTimerRunning(false)
+          setTimerStartedAtMs(null)
+          setTimerElapsedBeforeRunSec(0)
+        }
+        setTimerNowMs(Date.now())
+        setTimerHydrated(true)
         setInitialStateKey(buildLogDraftKey(date, key, nextSkippedIds, defaultLogs))
       })
     }
@@ -166,6 +269,56 @@ function LogPageInner() {
     setDate(nextDate)
     setHasSentLogStarted(false)
     setInitialStateKey(null)
+    setTimerRunning(false)
+    setTimerStartedAtMs(null)
+    setTimerElapsedBeforeRunSec(0)
+    setTimerNowMs(Date.now())
+  }
+
+  function handleStartPauseWorkoutTimer() {
+    if (!timerRunning) {
+      const now = Date.now()
+      setTimerStartedAtMs(now)
+      setTimerNowMs(now)
+      setTimerRunning(true)
+      if (!hasSentLogStarted) {
+        trackTelemetryEvent("log_started", {
+          date,
+          day_key: effectiveDayKey,
+          source: "workout_timer",
+        })
+        setHasSentLogStarted(true)
+      }
+      return
+    }
+
+    if (timerStartedAtMs) {
+      const elapsedThisRun = Math.max(0, Math.floor((Date.now() - timerStartedAtMs) / 1000))
+      setTimerElapsedBeforeRunSec((prev) => prev + elapsedThisRun)
+    }
+    setTimerStartedAtMs(null)
+    setTimerRunning(false)
+    setTimerNowMs(Date.now())
+  }
+
+  function handleResetWorkoutTimer() {
+    setTimerRunning(false)
+    setTimerStartedAtMs(null)
+    setTimerElapsedBeforeRunSec(0)
+    setTimerNowMs(Date.now())
+  }
+
+  function handleFinishWorkoutTimer() {
+    const now = Date.now()
+    const elapsedThisRun = timerRunning && timerStartedAtMs ? Math.max(0, Math.floor((now - timerStartedAtMs) / 1000)) : 0
+    const finalizedDurationSec = timerElapsedBeforeRunSec + elapsedThisRun
+
+    setTimerElapsedBeforeRunSec(finalizedDurationSec)
+    setTimerRunning(false)
+    setTimerStartedAtMs(null)
+    setTimerNowMs(now)
+
+    handleSave(finalizedDurationSec)
   }
 
   function removeExercise(exerciseId: string, isCustom: boolean) {
@@ -203,7 +356,7 @@ function LogPageInner() {
     setShowAddForm(true)
   }
 
-  function handleSave() {
+  function handleSave(durationOverrideSec?: number) {
     try {
       const dayKey = getDayKeyFromStr(date)
       const prevLogs = getLogs().filter((l) => !(l.date === date && l.dayKey === dayKey))
@@ -226,6 +379,8 @@ function LogPageInner() {
         skippedExerciseIds: Array.from(skippedIds),
         exercises: exerciseLogs,
         completedAt: new Date().toISOString(),
+        sessionDurationSeconds:
+          (durationOverrideSec ?? timerElapsedSec) > 0 ? durationOverrideSec ?? timerElapsedSec : undefined,
       })
 
       setInitialStateKey(currentStateKey)
@@ -331,34 +486,110 @@ function LogPageInner() {
         >
           Log Workout
         </h1>
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 10,
-            background: "var(--bg-surface)",
-            border: "0.5px solid var(--border-default)",
-            borderRadius: "var(--radius-md)",
-            padding: "10px 14px",
-          }}
-        >
-          <IcoCalendar size={14} stroke="var(--text-muted)" />
-          <input
-            type="date"
-            value={date}
-            max={todayStrPH()}
-            onChange={(e) => handleDateChange(e.target.value)}
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <div
             style={{
               flex: 1,
-              background: "none",
-              border: "none",
-              color: "var(--text-primary)",
-              fontSize: 14,
-              fontFamily: "inherit",
-              outline: "none",
-              cursor: "pointer",
+              display: "flex",
+              alignItems: "center",
+              gap: 10,
+              background: "var(--bg-surface)",
+              border: "0.5px solid var(--border-default)",
+              borderRadius: "var(--radius-md)",
+              padding: "10px 14px",
             }}
-          />
+          >
+            <IcoCalendar size={14} stroke="var(--text-muted)" />
+            <input
+              type="date"
+              value={date}
+              max={todayStrPH()}
+              onChange={(e) => handleDateChange(e.target.value)}
+              style={{
+                flex: 1,
+                background: "none",
+                border: "none",
+                color: "var(--text-primary)",
+                fontSize: 14,
+                fontFamily: "inherit",
+                outline: "none",
+                cursor: "pointer",
+              }}
+            />
+          </div>
+
+          <button
+            onClick={handleStartPauseWorkoutTimer}
+            style={{
+              background: timerRunning ? "var(--bg-elevated)" : "var(--accent)",
+              border: timerRunning ? "0.5px solid var(--border-default)" : "none",
+              borderRadius: "var(--radius-md)",
+              color: timerRunning ? "var(--text-primary)" : "#fff",
+              fontSize: 12,
+              fontWeight: 600,
+              padding: "11px 12px",
+              minWidth: 108,
+              cursor: "pointer",
+              fontFamily: "inherit",
+              whiteSpace: "nowrap",
+            }}
+          >
+            {timerRunning ? "Pause" : timerElapsedSec > 0 ? "Resume" : "Start workout"}
+          </button>
+        </div>
+
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 8 }}>
+          <div
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 6,
+              background: "var(--bg-surface)",
+              border: `0.5px solid ${timerRunning ? "var(--accent-border)" : "var(--border-subtle)"}`,
+              borderRadius: 20,
+              padding: "4px 10px",
+            }}
+          >
+            <span style={{ width: 7, height: 7, borderRadius: "50%", background: timerRunning ? "var(--accent)" : "var(--text-muted)", display: "inline-block" }} />
+            <span style={{ fontSize: 12, color: timerRunning ? "var(--accent)" : "var(--text-secondary)", fontWeight: 600 }}>{formattedTimer}</span>
+          </div>
+
+          {timerElapsedSec > 0 && (
+            <>
+              <button
+                onClick={handleFinishWorkoutTimer}
+                style={{
+                  background: "transparent",
+                  border: "0.5px solid var(--accent-border)",
+                  borderRadius: 20,
+                  color: "var(--accent)",
+                  fontSize: 11,
+                  fontWeight: 600,
+                  padding: "4px 10px",
+                  cursor: "pointer",
+                  fontFamily: "inherit",
+                }}
+              >
+                Finish
+              </button>
+
+              <button
+                onClick={handleResetWorkoutTimer}
+                style={{
+                  background: "transparent",
+                  border: "0.5px solid var(--border-default)",
+                  borderRadius: 20,
+                  color: "var(--text-secondary)",
+                  fontSize: 11,
+                  padding: "4px 10px",
+                  cursor: "pointer",
+                  fontFamily: "inherit",
+                }}
+              >
+                Reset
+              </button>
+            </>
+          )}
         </div>
       </div>
 
@@ -572,7 +803,7 @@ function LogPageInner() {
 
           {!showFloatingSaveBar && (
             <button
-              onClick={handleSave}
+              onClick={() => handleSave()}
               style={{
                 marginTop: 20,
                 width: "100%",
@@ -608,9 +839,12 @@ function LogPageInner() {
           background: "var(--bg-elevated)",
           border: "0.5px solid var(--accent-border)",
           borderRadius: 30,
-          padding: "10px 16px",
+          padding: "10px 14px",
+          width: "calc(100% - 32px)",
+          maxWidth: 460,
           display: "flex",
           alignItems: "center",
+          justifyContent: "space-between",
           gap: 12,
           boxShadow: "0 4px 24px rgba(0,0,0,0.5)",
           zIndex: 40,
@@ -619,7 +853,7 @@ function LogPageInner() {
       >
         <p style={{ fontSize: 13, color: "var(--text-secondary)", whiteSpace: "nowrap" }}>Unsaved changes</p>
         <button
-          onClick={handleSave}
+          onClick={() => handleSave()}
           disabled={!showFloatingSaveBar}
           tabIndex={showFloatingSaveBar ? 0 : -1}
           style={{
@@ -627,9 +861,9 @@ function LogPageInner() {
             border: "none",
             borderRadius: 20,
             color: "#fff",
-            fontSize: 12,
+            fontSize: 13,
             fontWeight: 500,
-            padding: "8px 14px",
+            padding: "6px 16px",
             cursor: showFloatingSaveBar ? "pointer" : "default",
             fontFamily: "inherit",
             display: "flex",
@@ -638,7 +872,7 @@ function LogPageInner() {
             opacity: showFloatingSaveBar ? 1 : 0.7,
           }}
         >
-          <IcoSave /> Save workout
+          <IcoSave /> Save now
         </button>
       </div>
 

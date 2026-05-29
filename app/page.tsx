@@ -287,6 +287,52 @@ export default function HomePage() {
         <h1 style={{ fontSize: 22, fontWeight: 500, color: "var(--text-primary)" }}>{formatDateFull(today)}</h1>
       </div>
 
+      <Link
+        href="/chat"
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: 12,
+          textDecoration: "none",
+          background: "var(--bg-surface)",
+          border: "0.5px solid var(--border-subtle)",
+          borderRadius: "var(--radius-md)",
+          padding: "12px 14px",
+          marginBottom: 14,
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
+          <span
+            style={{
+              width: 28,
+              height: 28,
+              borderRadius: 999,
+              background: "var(--accent-dim)",
+              border: "0.5px solid var(--accent-border)",
+              display: "inline-flex",
+              alignItems: "center",
+              justifyContent: "center",
+              color: "var(--accent)",
+              flexShrink: 0,
+            }}
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+            </svg>
+          </span>
+          <div style={{ minWidth: 0 }}>
+            <p style={{ fontSize: 13, fontWeight: 600, color: "var(--text-primary)", lineHeight: 1.2 }}>AI Coach</p>
+            <p style={{ fontSize: 11, color: "var(--text-secondary)", marginTop: 2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+              Ask for workout and nutrition guidance
+            </p>
+          </div>
+        </div>
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <path d="m9 18 6-6-6-6" />
+        </svg>
+      </Link>
+
       {programLoading ? (
         <TodayCardSkeleton />
       ) : (

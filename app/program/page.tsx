@@ -463,6 +463,7 @@ function DayCard({
     onChange({
       ...day,
       exercises: day.exercises.map(e => e.id === id ? updated : e),
+      _dirty: true,
     })
   }
 
@@ -472,6 +473,7 @@ function DayCard({
       exercises: day.exercises.map(e =>
         e.id === id ? { ...e, _deleted: true } : e
       ),
+      _dirty: true,
     })
   }
 
@@ -887,8 +889,8 @@ export default function ProgramPage() {
     <div style={{ paddingTop: 24, paddingBottom: 8 }}>
 
       {/* Header */}
-      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12, flexWrap: "wrap", marginBottom: 20 }}>
-        <div>
+      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12, flexWrap: "nowrap", marginBottom: 20 }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
           <h1 style={{ fontSize: 22, fontWeight: 500, color: "var(--text-primary)", marginBottom: 4 }}>
             My Program
           </h1>
@@ -911,9 +913,10 @@ export default function ProgramPage() {
             fontFamily: "inherit", flexShrink: 0,
             minHeight: 40,
             display: "flex", alignItems: "center", gap: 6,
+            alignSelf: "flex-start",
             transition: "background 0.15s",
           }}>
-          {saving ? <><IcoLoader /> Saving…</> : <><IcoSave /> Save changes</>}
+          {saving ? <><IcoLoader /> Saving…</> : <><IcoSave /> Save now</>}
         </button>
       </div>
 
@@ -943,7 +946,7 @@ export default function ProgramPage() {
       }}>
         <span style={{ color: "var(--text-muted)", flexShrink: 0, marginTop: 1 }}><IcoInfo /></span>
         <p style={{ fontSize: 12, color: "var(--text-secondary)", lineHeight: 1.6 }}>
-          Tap a day to expand it. Click the edit icon to rename a day or change its type. Add exercises with the &quot;+&quot; button. Changes are local until you tap <strong>Save changes</strong>.
+          Tap a day to expand it. Click the edit icon to rename a day or change its type. Add exercises with the &quot;+&quot; button. Changes are local until you tap <strong>Save now</strong>.
         </p>
       </div>
 
