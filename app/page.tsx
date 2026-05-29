@@ -7,6 +7,8 @@ import { todayStrPH, getGreetingPH, getThisWeekPH, formatDateFull, parseLocalDat
 import { useStreak, useCurrentWeek, useWorkoutLog } from "@/hooks/useWorkoutLog"
 import WorkoutIcon from "@/components/WorkoutIcon"
 import { fetchUserProgramByDay } from "@/lib/program-days"
+import { createClient } from "@/lib/supabase/client"
+import type { FitnessLevel, Goal } from "@/lib/types"
 
 const DAY_ABBR: Record<DayKey, string> = {
   sunday: "Sun",
@@ -16,6 +18,155 @@ const DAY_ABBR: Record<DayKey, string> = {
   thursday: "Thu",
   friday: "Fri",
   saturday: "Sat",
+}
+
+type NutritionProfile = {
+  goal: Goal | null
+  weightKg: number | null
+  heightCm: number | null
+  age: number | null
+  fitnessLevel: FitnessLevel | null
+}
+
+type NutritionDisplay = {
+  rows: Array<{ label: string; value: string }>
+  note: string
+}
+
+const DEFAULT_NUTRITION_DISPLAY: NutritionDisplay = {
+  rows: [
+    { label: "Protein", value: "100-110g" },
+    { label: "Water", value: "2.5-3L" },
+    { label: "Caloric deficit", value: "~300-400 kcal" },
+  ],
+  note: "Eat protein within 1-2 hrs post-workout for best muscle protein synthesis.",
+}
+
+function roundToNearest(value: number, step: number): number {
+  return Math.round(value / step) * step
+}
+
+function roundToTenth(value: number): number {
+  return Math.round(value * 10) / 10
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value))
+}
+
+function estimateNutritionDisplay(profile: NutritionProfile): NutritionDisplay {
+  const weight = profile.weightKg ?? 65
+  const height = profile.heightCm ?? 165
+  const age = profile.age ?? 28
+  const goal = profile.goal ?? "maintain"
+  const fitnessLevel = profile.fitnessLevel ?? "beginner"
+
+  const activityFactor: Record<FitnessLevel, number> = {
+    beginner: 1.4,
+    intermediate: 1.55,
+    advanced: 1.7,
+  }
+
+  // Neutral BMR constant to avoid sex-specific assumptions when profile does not include sex.
+  const bmr = 10 * weight + 6.25 * height - 5 * age - 78
+  const tdee = Math.max(1300, bmr * activityFactor[fitnessLevel])
+
+  const goalPreset: Record<
+    Goal,
+    {
+      calorieDeltaPct: number
+      proteinPerKg: number
+      fatPerKg: number
+      carbFloorPerKg: number
+      hydrationBonusL: number
+      note: string
+    }
+  > = {
+    lose_fat: {
+      calorieDeltaPct: -0.18,
+      proteinPerKg: 2.2,
+      fatPerKg: 0.75,
+      carbFloorPerKg: 1.2,
+      hydrationBonusL: 0.15,
+      note: "For fat loss, keep protein high, hit steps daily, and place most carbs around training.",
+    },
+    recomp: {
+      calorieDeltaPct: -0.08,
+      proteinPerKg: 2.1,
+      fatPerKg: 0.8,
+      carbFloorPerKg: 1.6,
+      hydrationBonusL: 0.2,
+      note: "For body recomposition, stay near maintenance, push progressive overload, and keep protein consistent.",
+    },
+    maintain: {
+      calorieDeltaPct: 0,
+      proteinPerKg: 1.8,
+      fatPerKg: 0.9,
+      carbFloorPerKg: 2.0,
+      hydrationBonusL: 0.2,
+      note: "For maintenance, hold steady intake and adjust only if bodyweight trend drifts for 2-3 weeks.",
+    },
+    build_muscle: {
+      calorieDeltaPct: 0.1,
+      proteinPerKg: 1.9,
+      fatPerKg: 0.8,
+      carbFloorPerKg: 2.5,
+      hydrationBonusL: 0.25,
+      note: "For muscle gain, target a modest surplus and prioritize carbs pre/post workout for output.",
+    },
+    endurance: {
+      calorieDeltaPct: 0.08,
+      proteinPerKg: 1.7,
+      fatPerKg: 0.75,
+      carbFloorPerKg: 3.0,
+      hydrationBonusL: 0.35,
+      note: "For endurance, protect recovery with higher carbs and increased fluid + electrolyte intake.",
+    },
+  }
+
+  const selectedPreset = goalPreset[goal]
+  const calorieFloor = 22 * weight
+  const calories = roundToNearest(Math.max(calorieFloor, tdee * (1 + selectedPreset.calorieDeltaPct)), 25)
+
+  const protein = Math.max(80, roundToNearest(weight * selectedPreset.proteinPerKg, 5))
+  const fat = Math.max(35, roundToNearest(weight * selectedPreset.fatPerKg, 5))
+
+  const carbFloor = weight * selectedPreset.carbFloorPerKg
+  const carbsFromRemaining = (calories - protein * 4 - fat * 9) / 4
+  const carbs = Math.max(roundToNearest(carbFloor, 5), roundToNearest(carbsFromRemaining, 5))
+
+  const activityHydrationByLevel: Record<FitnessLevel, number> = {
+    beginner: 0.2,
+    intermediate: 0.4,
+    advanced: 0.6,
+  }
+
+  const waterBase = (weight * 0.033) + activityHydrationByLevel[fitnessLevel] + selectedPreset.hydrationBonusL
+  const waterMin = roundToTenth(Math.max(2.0, waterBase - 0.3))
+  const waterMax = roundToTenth(clamp(waterBase + 0.5, 2.4, 5.2))
+
+  const calorieBand: Record<Goal, number> = {
+    lose_fat: 100,
+    recomp: 75,
+    maintain: 100,
+    build_muscle: 100,
+    endurance: 125,
+  }
+
+  const calorieRangeHalf = calorieBand[goal] / 2
+  const calorieMin = roundToNearest(calories - calorieRangeHalf, 25)
+  const calorieMax = roundToNearest(calories + calorieRangeHalf, 25)
+
+  return {
+    rows: [
+      { label: "Calorie target", value: `${calorieMin}-${calorieMax} kcal` },
+      { label: "Protein", value: `${Math.max(80, protein - 5)}-${protein + 5}g` },
+      { label: "Carbs", value: `${carbs}g` },
+      { label: "Fats", value: `${fat}g` },
+      { label: "Water", value: `${waterMin}-${waterMax}L` },
+    ],
+    note: selectedPreset.note,
+  }
 }
 
 function TodayCardSkeleton() {
@@ -49,6 +200,7 @@ function TodayCardSkeleton() {
 export default function HomePage() {
   const [programByDay, setProgramByDay] = useState<Partial<Record<DayKey, WorkoutDay>>>({})
   const [programLoading, setProgramLoading] = useState(true)
+  const [nutritionDisplay, setNutritionDisplay] = useState<NutritionDisplay>(DEFAULT_NUTRITION_DISPLAY)
 
   const today = todayStrPH()
   const todayKey = getDayKeyFromStr(today)
@@ -76,6 +228,45 @@ export default function HomePage() {
 
     void loadProgram()
 
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  useEffect(() => {
+    let cancelled = false
+
+    async function loadNutritionTargets() {
+      const supabase = createClient()
+      const {
+        data: { user },
+      } = await supabase.auth.getUser()
+
+      if (!user) {
+        if (!cancelled) setNutritionDisplay(DEFAULT_NUTRITION_DISPLAY)
+        return
+      }
+
+      const { data } = await supabase
+        .from("profiles")
+        .select("goal, weight_kg, height_cm, age, fitness_level")
+        .eq("id", user.id)
+        .single()
+
+      const profile: NutritionProfile = {
+        goal: (data?.goal as Goal | null) ?? null,
+        weightKg: (data?.weight_kg as number | null) ?? null,
+        heightCm: (data?.height_cm as number | null) ?? null,
+        age: (data?.age as number | null) ?? null,
+        fitnessLevel: (data?.fitness_level as FitnessLevel | null) ?? null,
+      }
+
+      if (!cancelled) {
+        setNutritionDisplay(estimateNutritionDisplay(profile))
+      }
+    }
+
+    void loadNutritionTargets()
     return () => {
       cancelled = true
     }
@@ -421,11 +612,7 @@ export default function HomePage() {
         >
           Daily nutrition targets
         </p>
-        {[
-          { label: "Protein", value: "100-110g" },
-          { label: "Water", value: "2.5-3L" },
-          { label: "Caloric deficit", value: "~300-400 kcal" },
-        ].map(({ label, value }) => (
+        {nutritionDisplay.rows.map(({ label, value }) => (
           <div key={label} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 9 }}>
             <span style={{ fontSize: 13, color: "var(--text-secondary)" }}>{label}</span>
             <span style={{ fontSize: 13, fontWeight: 500, color: "var(--text-primary)" }}>{value}</span>
@@ -441,7 +628,7 @@ export default function HomePage() {
             marginTop: 4,
           }}
         >
-          Eat protein within 1-2 hrs post-workout for best muscle protein synthesis.
+          {nutritionDisplay.note}
         </p>
       </div>
     </div>

@@ -23,6 +23,15 @@ const GOAL_LABELS: Record<Goal, string> = {
   endurance: "Improve endurance",
 }
 
+const MIN_WEIGHT_KG = 30
+const MAX_WEIGHT_KG = 300
+const MIN_HEIGHT_CM = 120
+const MAX_HEIGHT_CM = 230
+
+function clampMetric(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value))
+}
+
 function StatCard({ label, value }: { label: string; value: string | number }) {
   return (
     <div
@@ -31,9 +40,10 @@ function StatCard({ label, value }: { label: string; value: string | number }) {
         border: "0.5px solid var(--border-subtle)",
         borderRadius: "var(--radius-md)",
         padding: "14px 12px",
+        minHeight: 88,
       }}
     >
-      <p style={{ fontSize: 10, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 6 }}>{label}</p>
+      <p style={{ fontSize: 10, color: "var(--text-secondary)", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 6 }}>{label}</p>
       <p style={{ fontSize: 24, fontWeight: 600, color: "var(--text-primary)", lineHeight: 1 }}>{value}</p>
     </div>
   )
@@ -141,13 +151,16 @@ export default function ProfilePage() {
         return
       }
 
+      const safeWeightKg = profile.weightKg != null ? clampMetric(profile.weightKg, MIN_WEIGHT_KG, MAX_WEIGHT_KG) : null
+      const safeHeightCm = profile.heightCm != null ? clampMetric(profile.heightCm, MIN_HEIGHT_CM, MAX_HEIGHT_CM) : null
+
       const { error: updateError } = await supabase
         .from("profiles")
         .update({
           full_name: profile.fullName.trim() || null,
           goal: profile.goal,
-          weight_kg: profile.weightKg,
-          height_cm: profile.heightCm,
+          weight_kg: safeWeightKg,
+          height_cm: safeHeightCm,
         })
         .eq("id", user.id)
 
@@ -155,6 +168,12 @@ export default function ProfilePage() {
         setError(updateError.message)
         return
       }
+
+      setProfile((prev) => ({
+        ...prev,
+        weightKg: safeWeightKg,
+        heightCm: safeHeightCm,
+      }))
 
       setEditing(false)
     } catch {
@@ -174,11 +193,29 @@ export default function ProfilePage() {
 
   if (loading) return <ProfileSkeleton />
 
+  const labelStyle: React.CSSProperties = {
+    fontSize: 11,
+    color: "var(--text-secondary)",
+    fontWeight: 500,
+    marginBottom: 6,
+  }
+
+  const inputStyle: React.CSSProperties = {
+    background: "var(--bg-input)",
+    border: "0.5px solid var(--border-default)",
+    borderRadius: "var(--radius-sm)",
+    color: "var(--text-primary)",
+    fontSize: 13,
+    padding: "10px 10px",
+    outline: "none",
+    width: "100%",
+  }
+
   return (
     <div style={{ paddingTop: 24, paddingBottom: 8 }}>
       <div style={{ marginBottom: 18 }}>
         <h1 style={{ fontSize: 22, fontWeight: 500, color: "var(--text-primary)", marginBottom: 4 }}>My Profile</h1>
-        <p style={{ fontSize: 12, color: "var(--text-muted)" }}>Account, goals, and your current training stats.</p>
+        <p style={{ fontSize: 12, color: "var(--text-secondary)" }}>Account, goals, and your current training stats.</p>
       </div>
 
       <section
@@ -212,7 +249,7 @@ export default function ProfilePage() {
 
           <div style={{ minWidth: 0 }}>
             <p style={{ fontSize: 17, fontWeight: 500, color: "var(--text-primary)", lineHeight: 1.2 }}>{profile.fullName || "GainLog User"}</p>
-            <p style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 2, wordBreak: "break-all" }}>{profile.email}</p>
+            <p style={{ fontSize: 12, color: "var(--text-secondary)", marginTop: 2, wordBreak: "break-all" }}>{profile.email}</p>
             <p style={{ fontSize: 12, color: "var(--text-secondary)", marginTop: 6 }}>
               Goal: {profile.goal ? GOAL_LABELS[profile.goal] : "Not set"}
             </p>
@@ -221,99 +258,103 @@ export default function ProfilePage() {
 
         {editing ? (
           <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-            <input
-              value={profile.fullName}
-              onChange={(event) => setProfile((prev) => ({ ...prev, fullName: event.target.value }))}
-              placeholder="Full name"
-              style={{
-                background: "var(--bg-input)",
-                border: "0.5px solid var(--border-default)",
-                borderRadius: "var(--radius-sm)",
-                color: "var(--text-primary)",
-                fontSize: 13,
-                padding: "9px 10px",
-                outline: "none",
-              }}
-            />
-
-            <select
-              value={profile.goal ?? ""}
-              onChange={(event) => setProfile((prev) => ({ ...prev, goal: (event.target.value || null) as Goal | null }))}
-              style={{
-                background: "var(--bg-input)",
-                border: "0.5px solid var(--border-default)",
-                borderRadius: "var(--radius-sm)",
-                color: "var(--text-primary)",
-                fontSize: 13,
-                padding: "9px 10px",
-                outline: "none",
-              }}
-            >
-              <option value="">Select goal</option>
-              {Object.entries(GOAL_LABELS).map(([key, label]) => (
-                <option key={key} value={key}>
-                  {label}
-                </option>
-              ))}
-            </select>
-
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+            <div>
+              <label htmlFor="profile-full-name" style={labelStyle}>
+                Full name
+              </label>
               <input
-                type="number"
-                value={profile.weightKg ?? ""}
-                onChange={(event) =>
-                  setProfile((prev) => ({
-                    ...prev,
-                    weightKg: event.target.value ? Number(event.target.value) : null,
-                  }))
-                }
-                placeholder="Weight (kg)"
-                style={{
-                  background: "var(--bg-input)",
-                  border: "0.5px solid var(--border-default)",
-                  borderRadius: "var(--radius-sm)",
-                  color: "var(--text-primary)",
-                  fontSize: 13,
-                  padding: "9px 10px",
-                  outline: "none",
-                }}
-              />
-              <input
-                type="number"
-                value={profile.heightCm ?? ""}
-                onChange={(event) =>
-                  setProfile((prev) => ({
-                    ...prev,
-                    heightCm: event.target.value ? Number(event.target.value) : null,
-                  }))
-                }
-                placeholder="Height (cm)"
-                style={{
-                  background: "var(--bg-input)",
-                  border: "0.5px solid var(--border-default)",
-                  borderRadius: "var(--radius-sm)",
-                  color: "var(--text-primary)",
-                  fontSize: 13,
-                  padding: "9px 10px",
-                  outline: "none",
-                }}
+                id="profile-full-name"
+                value={profile.fullName}
+                onChange={(event) => setProfile((prev) => ({ ...prev, fullName: event.target.value }))}
+                placeholder="Enter full name"
+                style={inputStyle}
               />
             </div>
 
-            <div style={{ display: "flex", gap: 8 }}>
+            <div>
+              <label htmlFor="profile-goal" style={labelStyle}>
+                Goal
+              </label>
+              <select
+                id="profile-goal"
+                value={profile.goal ?? ""}
+                onChange={(event) => setProfile((prev) => ({ ...prev, goal: (event.target.value || null) as Goal | null }))}
+                style={inputStyle}
+              >
+                <option value="">Select goal</option>
+                {Object.entries(GOAL_LABELS).map(([key, label]) => (
+                  <option key={key} value={key}>
+                    {label}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+              <div>
+                <label htmlFor="profile-weight" style={labelStyle}>
+                  Weight (kg)
+                </label>
+                <input
+                  id="profile-weight"
+                  type="number"
+                  min={MIN_WEIGHT_KG}
+                  max={MAX_WEIGHT_KG}
+                  step={0.1}
+                  value={profile.weightKg ?? ""}
+                  onChange={(event) =>
+                    setProfile((prev) => ({
+                      ...prev,
+                      weightKg: event.target.value ? Number(event.target.value) : null,
+                    }))
+                  }
+                  placeholder="e.g. 70"
+                  style={inputStyle}
+                />
+              </div>
+              <div>
+                <label htmlFor="profile-height" style={labelStyle}>
+                  Height (cm)
+                </label>
+                <input
+                  id="profile-height"
+                  type="number"
+                  min={MIN_HEIGHT_CM}
+                  max={MAX_HEIGHT_CM}
+                  step={1}
+                  value={profile.heightCm ?? ""}
+                  onChange={(event) =>
+                    setProfile((prev) => ({
+                      ...prev,
+                      heightCm: event.target.value ? Number(event.target.value) : null,
+                    }))
+                  }
+                  placeholder="e.g. 172"
+                  style={inputStyle}
+                />
+              </div>
+            </div>
+
+            <p style={{ fontSize: 11, color: "var(--text-secondary)", marginTop: -2 }}>
+              Weight range: {MIN_WEIGHT_KG}-{MAX_WEIGHT_KG} kg. Height range: {MIN_HEIGHT_CM}-{MAX_HEIGHT_CM} cm.
+            </p>
+
+            <div style={{ width: "100%", height: 0.5, background: "var(--border-subtle)", margin: "4px 0 2px" }} />
+
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
               <button
                 type="button"
                 onClick={handleSaveProfile}
                 disabled={saving}
                 style={{
-                  flex: 1,
+                  flex: "1 1 160px",
                   background: "var(--accent)",
                   border: "none",
                   borderRadius: "var(--radius-sm)",
                   color: "#fff",
                   fontSize: 13,
-                  fontWeight: 500,
-                  padding: "10px 0",
+                  fontWeight: 600,
+                  padding: "11px 0",
                   cursor: saving ? "default" : "pointer",
                   fontFamily: "inherit",
                 }}
@@ -325,14 +366,14 @@ export default function ProfilePage() {
                 onClick={() => setEditing(false)}
                 disabled={saving}
                 style={{
-                  flex: 1,
+                  flex: "1 1 120px",
                   background: "var(--bg-elevated)",
                   border: "0.5px solid var(--border-default)",
                   borderRadius: "var(--radius-sm)",
-                  color: "var(--text-secondary)",
+                  color: "var(--text-primary)",
                   fontSize: 13,
                   fontWeight: 500,
-                  padding: "10px 0",
+                  padding: "11px 0",
                   cursor: saving ? "default" : "pointer",
                   fontFamily: "inherit",
                 }}
@@ -342,17 +383,17 @@ export default function ProfilePage() {
             </div>
           </div>
         ) : (
-          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 2 }}>
             <button
               type="button"
               onClick={() => setEditing(true)}
               style={{
-                background: "var(--bg-elevated)",
-                border: "0.5px solid var(--border-default)",
+                background: "var(--accent-dim)",
+                border: "0.5px solid var(--accent-border)",
                 borderRadius: "var(--radius-sm)",
-                color: "var(--text-secondary)",
+                color: "var(--accent)",
                 fontSize: 13,
-                fontWeight: 500,
+                fontWeight: 600,
                 padding: "9px 14px",
                 cursor: "pointer",
                 fontFamily: "inherit",
@@ -364,9 +405,9 @@ export default function ProfilePage() {
               href="/program"
               style={{
                 background: "transparent",
-                border: "0.5px solid var(--border-subtle)",
+                border: "0.5px solid var(--border-default)",
                 borderRadius: "var(--radius-sm)",
-                color: "var(--text-muted)",
+                color: "var(--text-secondary)",
                 fontSize: 13,
                 fontWeight: 500,
                 padding: "9px 14px",
@@ -381,7 +422,7 @@ export default function ProfilePage() {
         {error && <p style={{ fontSize: 12, color: "#ff6b6b", marginTop: 10 }}>{error}</p>}
       </section>
 
-      <section style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, marginBottom: 12 }}>
+      <section style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(108px, 1fr))", gap: 8, marginBottom: 12 }}>
         <StatCard label="Total sessions" value={isLoaded ? logs.length : "-"} />
         <StatCard label="Current streak" value={isLoaded ? streak : "-"} />
         <StatCard label="Personal records" value={isLoaded ? bests.length : "-"} />
@@ -396,7 +437,7 @@ export default function ProfilePage() {
           marginBottom: 14,
         }}
       >
-        <p style={{ fontSize: 10, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 10 }}>
+        <p style={{ fontSize: 10, color: "var(--text-secondary)", textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 10 }}>
           Body stats
         </p>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
