@@ -193,7 +193,7 @@ Write a concise onboarding recommendation under 180 words:
 Use plain text and numbered tips.`
 
       const completion = await groq.chat.completions.create({
-        model: "llama-3.3-70b-versatile",
+        model: "openai/gpt-oss-120b",
         max_tokens: 320,
         temperature: 0,
         messages: [{ role: "user", content: prompt }],
