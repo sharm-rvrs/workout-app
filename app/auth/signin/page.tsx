@@ -99,6 +99,7 @@ function SignInContent() {
 
   const verifyRequired = searchParams.get("verify") === "1"
   const accountExists = searchParams.get("exists") === "1"
+  const passwordReset = searchParams.get("reset") === "1"
   const prefilledEmail = searchParams.get("email") ?? ""
 
   const [email, setEmail]         = useState(prefilledEmail)
@@ -361,6 +362,26 @@ function SignInContent() {
               </div>
             )}
 
+            {/* Password reset notice */}
+            {passwordReset && !error && (
+              <div style={{
+                display: "flex",
+                alignItems: "flex-start",
+                gap: 8,
+                background: "rgba(76,175,125,0.10)",
+                border: "0.5px solid rgba(76,175,125,0.35)",
+                borderRadius: "var(--radius-md)",
+                padding: "10px 12px",
+              }}>
+                <span style={{ color: "#4caf7d", flexShrink: 0, marginTop: 1 }}>
+                  <IcoAlert />
+                </span>
+                <p style={{ fontSize: 13, color: "#8fd4ad", lineHeight: 1.5 }}>
+                  Password updated. Please sign in with your new password.
+                </p>
+              </div>
+            )}
+
             {/* Error banner */}
             {error && (
               <div style={{
@@ -421,6 +442,20 @@ function SignInContent() {
                 </button>
               }
             />
+
+            {/* Forgot password */}
+            <Link
+              href="/auth/forgot-password"
+              style={{
+                alignSelf: "flex-end",
+                marginTop: -8,
+                fontSize: 13,
+                color: "var(--text-secondary)",
+                textDecoration: "none",
+                fontWeight: 500,
+              }}>
+              Forgot password?
+            </Link>
 
             {/* Submit */}
             <button

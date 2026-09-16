@@ -4,7 +4,7 @@ import Link from "next/link"
 import { useSyncExternalStore } from "react"
 import { usePathname } from "next/navigation"
 
-const HIDDEN_ON = ["/auth/signin", "/auth/signup", "/onboarding"]
+const HIDDEN_ON = ["/auth", "/onboarding"]
 
 const NAV_ITEMS = [
   {

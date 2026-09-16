@@ -8,16 +8,23 @@ import { NextResponse, type NextRequest } from "next/server"
 const PUBLIC_ROUTES = [
   "/auth/signin",
   "/auth/signup",
+  "/auth/forgot-password",
+  "/auth/reset-password",
 ]
 
 // ─────────────────────────────────────────────
 //  Routes that logged-in users shouldn't visit
 //  (redirect them to home instead)
+//
+//  /auth/reset-password is deliberately excluded: visiting it establishes
+//  a short-lived "logged in" recovery session, and redirecting away would
+//  block the user from actually setting their new password.
 // ─────────────────────────────────────────────
 
 const AUTH_ROUTES = [
   "/auth/signin",
   "/auth/signup",
+  "/auth/forgot-password",
 ]
 
 export async function proxy(request: NextRequest) {
